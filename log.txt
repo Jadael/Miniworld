@@ -1,0 +1,52 @@
+Godot Engine v4.4.1.stable.official.49a5bc7b6 - https://godotengine.org
+OpenGL API 3.3.0 NVIDIA 572.47 - Compatibility - Using Device: NVIDIA - NVIDIA GeForce RTX 4060 Ti
+
+WorldKeeper: Initialized with nexus (#0) and root room (#1)
+
+=== Creating World ===
+Created: <RefCounted#-9223372006605453985>
+Created: <RefCounted#-9223372006571899550>
+Connected rooms with exits
+
+=== Creating Player ===
+Created: <RefCounted#-9223372006538345116>
+Player moved to: The Lobby
+
+=== Testing Commands ===
+
+Player executes: LOOK
+Result: A comfortable entrance hall with plush seating and warm lighting.
+
+Obvious exits: garden, north
+
+You see:
+  - Wanderer
+
+
+Player executes: SAY Hello, world!
+Result: You say, "Hello, world!"
+
+Player executes: GO garden
+Result: A peaceful garden filled with flowers and the sound of trickling water.
+
+Obvious exits: lobby, south
+
+You see:
+  - Wanderer
+
+
+Player executes: EMOTE waves at the flowers
+Result: Wanderer waves at the flowers
+
+=== Player Memories ===
+No memories.
+
+=== World Stats ===
+{ "total_objects": 5, "total_rooms": 3, "next_id": 1005 }
+
+=== World Tree ===
+the nexus (#0)
+  The Genesis Chamber (#1)
+  The Lobby (#1002)
+  The Garden (#1003)
+    Wanderer (#1004)

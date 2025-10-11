@@ -1,0 +1,114 @@
+[gd_scene load_steps=2 format=3 uid="uid://cw2bvgqxs0ck4"]
+
+[ext_resource type="Script" path="res://UI/game_ui.gd" id="1_ui"]
+
+[node name="GameUI" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_ui")
+
+[node name="MainPanel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_right = -300.0
+offset_bottom = -60.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="EventScroll" type="RichTextLabel" parent="MainPanel"]
+layout_mode = 2
+bbcode_enabled = true
+scroll_following = true
+selection_enabled = true
+context_menu_enabled = true
+
+[node name="SidePanel" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -300.0
+offset_bottom = -60.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="LocationContainer" type="VBoxContainer" parent="SidePanel"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="LocationHeader" type="Label" parent="SidePanel/LocationContainer"]
+layout_mode = 2
+text = "LOCATION"
+horizontal_alignment = 1
+
+[node name="LocationPanel" type="PanelContainer" parent="SidePanel/LocationContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="VBox" type="VBoxContainer" parent="SidePanel/LocationContainer/LocationPanel"]
+layout_mode = 2
+
+[node name="LocationLabel" type="RichTextLabel" parent="SidePanel/LocationContainer/LocationPanel"]
+custom_minimum_size = Vector2(0, 150)
+layout_mode = 2
+size_flags_vertical = 3
+bbcode_enabled = true
+fit_content = true
+
+[node name="ExitsLabel" type="Label" parent="SidePanel/LocationContainer/LocationPanel"]
+layout_mode = 2
+text = "Exits: none"
+horizontal_alignment = 1
+
+[node name="Spacer" type="Control" parent="SidePanel"]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+
+[node name="OccupantsContainer" type="VBoxContainer" parent="SidePanel"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="OccupantsHeader" type="Label" parent="SidePanel/OccupantsContainer"]
+layout_mode = 2
+text = "WHO'S HERE"
+horizontal_alignment = 1
+
+[node name="OccupantsPanel" type="PanelContainer" parent="SidePanel/OccupantsContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="OccupantsList" type="RichTextLabel" parent="SidePanel/OccupantsContainer/OccupantsPanel"]
+layout_mode = 2
+bbcode_enabled = true
+fit_content = true
+
+[node name="BottomPanel" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -60.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="CommandLabel" type="Label" parent="BottomPanel"]
+layout_mode = 2
+text = ">"
+
+[node name="CommandInput" type="LineEdit" parent="BottomPanel"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Enter command..."
+
+[node name="SendButton" type="Button" parent="BottomPanel"]
+layout_mode = 2
+text = "Send"
