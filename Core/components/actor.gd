@@ -106,6 +106,10 @@ func execute_command(command: String, args: Array = []) -> Dictionary:
 			result = _cmd_emote(args)
 		"examine", "ex":
 			result = _cmd_examine(args)
+		"think":
+			result = _cmd_think(args)
+		"dream":
+			result = _cmd_dream(args)
 		"who":
 			result = _cmd_who(args)
 		"where":
@@ -339,6 +343,147 @@ func _cmd_examine(args: Array) -> Dictionary:
 	}
 
 
+func _cmd_think(args: Array) -> Dictionary:
+	"""THINK command - Record internal reasoning/thoughts.
+
+	Allows actors (both players and AI agents) to record their internal
+	reasoning, plans, and observations as standalone thoughts. Thoughts
+	are stored in memory but not broadcast to other actors.
+
+	Args:
+		args: Array of words describing the thought (joined with spaces)
+
+	Returns:
+		Dictionary with:
+		- success (bool): True if thought was recorded
+		- message (String): Confirmation of thought recorded
+
+	Notes:
+		Thoughts are private - they go to memory but not to other actors.
+		This is useful for recording plans, observations, or reasoning that
+		isn't directly tied to a specific action.
+		AI agents can also include REASON: lines with their commands to
+		record action-specific reasoning.
+	"""
+	if args.size() == 0:
+		return {"success": false, "message": "Think what?"}
+
+	var thought: String = " ".join(args)
+
+	# Record to memory if available
+	if owner.has_component("memory"):
+		var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
+		memory_comp.add_memory("thought", thought)
+
+	return {
+		"success": true,
+		"message": "You think: %s" % thought
+	}
+
+
+func _cmd_dream(_args: Array) -> Dictionary:
+	"""DREAM command - Review mixed memories for insights.
+
+	Combines recent and random memories, sends them to an LLM for analysis,
+	and stores the insights as a note. Useful for making connections between
+	older and newer experiences, or breaking out of repetitive thought patterns.
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): True if dream analysis succeeded
+		- message (String): The dream insights from the LLM
+
+	Notes:
+		Requires memory component and Shoggoth LLM interface.
+		Creates a jumbled mix of ~5 recent + ~5 random older memories.
+		LLM processes them for patterns, insights, and connections.
+		Result is stored as a note for future reference.
+		This is asynchronous - the command returns immediately and
+		the dream insight appears as a follow-up message.
+	"""
+	if not owner.has_component("memory"):
+		return {"success": false, "message": "You have no memory to dream about."}
+
+	if not Shoggoth or not Shoggoth.ollama_client:
+		return {"success": false, "message": "Dream analysis requires LLM connection."}
+
+	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
+
+	# Get mix of recent and random memories
+	var recent: Array[Dictionary] = memory_comp.get_recent_memories(5)
+	var random: Array[Dictionary] = memory_comp.get_random_memories(5)
+
+	if recent.size() == 0 and random.size() == 0:
+		return {"success": false, "message": "You have no memories to dream about."}
+
+	# Combine and shuffle to create dream-like jumble
+	var dream_memories: Array = []
+	dream_memories.append_array(recent)
+	dream_memories.append_array(random)
+	dream_memories.shuffle()
+
+	# Build dream prompt
+	var prompt: String = "You are reviewing a jumbled set of memories. Look for patterns, insights, connections, or things you might have missed. These memories are a mix of recent experiences and older ones randomly surfaced.\n\n"
+	prompt += "## Memory Fragments\n\n"
+
+	for memory in dream_memories:
+		var mem_dict: Dictionary = memory as Dictionary
+		prompt += "- %s\n" % mem_dict.content
+
+	prompt += "\n## Task\n\n"
+	prompt += "Analyze these memory fragments. What patterns emerge? What connections can you make? "
+	prompt += "What insights or hunches arise? What might be worth investigating further?\n\n"
+	prompt += "Provide a brief analysis (2-4 sentences) focusing on actionable insights or interesting connections."
+
+	# Request LLM analysis asynchronously
+	print("Dream: %s entering dream state..." % owner.name)
+	Shoggoth.generate_async(prompt, "You are an insightful analyst helping someone process their memories.",
+		func(response: String):
+			_on_dream_complete(response)
+	)
+
+	return {
+		"success": true,
+		"message": "You drift into a dream state, memories swirling together..."
+	}
+
+
+func _on_dream_complete(insight: String) -> void:
+	"""Handle dream analysis result from LLM.
+
+	Called when the LLM finishes analyzing the jumbled memories.
+	Stores the insight as a note and notifies the actor.
+
+	Args:
+		insight: The LLM's analysis of the memory fragments
+
+	Notes:
+		This is a callback from the async LLM request
+	"""
+	if not owner or not owner.has_component("memory"):
+		return
+
+	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
+
+	# Store dream insight as a note-like memory
+	var timestamp: String = Time.get_datetime_string_from_unix_time(Time.get_unix_time_from_system())
+	memory_comp.add_memory("dream", "Dream insight: %s" % insight)
+
+	# If this is an AI agent, the insight will appear in their next memory review
+	# If this is the player, emit a command result
+	print("Dream: %s received insight: %s" % [owner.name, insight])
+
+	# Emit as a command result for player visibility
+	var result: Dictionary = {
+		"success": true,
+		"message": "Dream Insight:\n%s" % insight
+	}
+	command_executed.emit("dream", result)
+
+
 func observe_event(event: Dictionary) -> void:
 	"""Observe an event happening in this actor's location.
 
@@ -386,7 +531,7 @@ func _cmd_who(_args: Array) -> Dictionary:
 		return {"success": true, "message": "No one is here."}
 
 	# Format actor list with locations and AI indicators
-	var text: String = "[color=cyan][b]Who's Online[/b][/color]\n\n"
+	var text: String = "Who's Online\n\n"
 	for actor in actors:
 		var location: WorldObject = actor.get_location()
 		var loc_name: String = location.name if location else "The Void"
@@ -412,7 +557,7 @@ func _cmd_where(_args: Array) -> Dictionary:
 	if current_location == null:
 		return {"success": true, "message": "You are nowhere."}
 
-	return {"success": true, "message": "You are in [color=yellow]%s[/color] (%s)" % [current_location.name, current_location.id]}
+	return {"success": true, "message": "You are in %s (%s)" % [current_location.name, current_location.id]}
 
 
 func _cmd_rooms(_args: Array) -> Dictionary:
@@ -434,7 +579,7 @@ func _cmd_rooms(_args: Array) -> Dictionary:
 		return {"success": true, "message": "No rooms exist."}
 
 	# Build formatted room list with occupants
-	var text: String = "[color=cyan][b]Rooms in the World[/b][/color]\n\n"
+	var text: String = "Rooms in the World\n\n"
 	for room in rooms:
 		var occupants: Array = []
 		for obj in room.get_contents():
@@ -476,7 +621,7 @@ func _cmd_dig(args: Array) -> Dictionary:
 
 	return {
 		"success": true,
-		"message": "[color=green]Created room:[/color] %s [%s]\nUse @exit to connect it to other rooms." % [new_room.name, new_room.id]
+		"message": "Created room: %s [%s]\nUse @exit to connect it to other rooms." % [new_room.name, new_room.id]
 	}
 
 
@@ -551,7 +696,7 @@ func _cmd_exit(args: Array) -> Dictionary:
 
 	return {
 		"success": true,
-		"message": "[color=green]Created exit:[/color] %s → %s [%s]" % [exit_name, destination.name, destination.id]
+		"message": "Created exit: %s → %s [%s]" % [exit_name, destination.name, destination.id]
 	}
 
 
@@ -663,12 +808,12 @@ func _cmd_save(_args: Array) -> Dictionary:
 	if success:
 		return {
 			"success": true,
-			"message": "[color=green]World saved to vault![/color]\nCheck the console output for details."
+			"message": "World saved to vault!\nCheck the console output for details."
 		}
 	else:
 		return {
 			"success": false,
-			"message": "[color=red]Failed to save world to vault.[/color]\nCheck the console for errors."
+			"message": "Failed to save world to vault.\nCheck the console for errors."
 		}
 
 
@@ -708,33 +853,37 @@ func _cmd_impersonate(args: Array) -> Dictionary:
 	var context: Dictionary = thinker_comp._build_context()
 	var prompt: String = thinker_comp._construct_prompt(context)
 
-	# Format the perspective
-	var message: String = "[color=cyan][b]=== Impersonating %s ===[/b][/color]\n\n" % agent_name
+	# Format the perspective to show exactly what the AI sees
+	var message: String = "═══ Impersonating %s ═══\n\n" % agent_name
 
-	message += "[color=yellow][b]Current Situation:[/b][/color]\n"
+	message += "[What %s currently perceives]\n\n" % agent_name
 	message += "Location: %s\n" % context.location_name
-	message += "Description: %s\n" % context.location_description
+	message += "%s\n" % context.location_description
 
 	if context.exits.size() > 0:
 		message += "Exits: %s\n" % ", ".join(context.exits)
 	else:
-		message += "Exits: None\n"
+		message += "No exits visible\n"
 
 	if context.occupants.size() > 0:
 		message += "Also here: %s\n\n" % ", ".join(context.occupants)
 	else:
-		message += "Alone\n\n"
+		message += "Alone here\n\n"
 
 	if context.recent_memories.size() > 0:
-		message += "[color=yellow][b]Recent Memories (%d):[/b][/color]\n" % context.recent_memories.size()
+		message += "[Recent Events - what %s has been doing and seeing]\n\n" % agent_name
 		for memory in context.recent_memories:
-			message += "- %s\n" % memory
+			var mem_dict: Dictionary = memory as Dictionary
+			# Display memory content as-is to preserve transcript format ("> command\nresult")
+			message += "%s\n" % mem_dict.content
 		message += "\n"
 	else:
-		message += "[color=yellow][b]No recent memories[/b][/color]\n\n"
+		message += "[No recent memories]\n\n"
 
-	message += "[color=yellow][b]Full Prompt Sent to LLM:[/b][/color]\n"
-	message += "[color=gray]%s[/color]\n" % prompt.replace("\n", "\n")
+	message += "[Full LLM Prompt]\n"
+	message += "────────────────────────────────────────────────────────────\n"
+	message += "%s" % prompt
+	message += "────────────────────────────────────────────────────────────\n"
 
 	return {
 		"success": true,

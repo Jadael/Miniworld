@@ -18,21 +18,21 @@ Miniworld includes AI-controlled agents that can autonomously explore, interact,
 ┌─────────────────┐
 │ ThinkerComponent│  Observes world via Memory
 └────────┬────────┘  Generates prompts with context
-         │
-         ▼
-    ┌─────────┐
-    │Shoggoth │  LLM interface (Ollama)
-    └────┬────┘
-         │
-         ▼
+		 │
+		 ▼
+	┌─────────┐
+	│Shoggoth │  LLM interface (Ollama)
+	└────┬────┘
+		 │
+		 ▼
   ┌──────────────┐
   │ActorComponent│  Executes chosen command
   └──────────────┘
-         │
-         ▼
-    ┌─────────┐
-    │  World  │  Action affects world
-    └─────────┘
+		 │
+		 ▼
+	┌─────────┐
+	│  World  │  Action affects world
+	└─────────┘
 ```
 
 **Decision Loop:**
@@ -59,10 +59,10 @@ var moss = AIAgent.create_moss(starting_location)
 
 # Create custom agent
 var custom = AIAgent.create(
-    "AgentName",
-    "Personality profile text...",
-    starting_location,
-    think_interval  # seconds between thoughts
+	"AgentName",
+	"Personality profile text...",
+	starting_location,
+	think_interval  # seconds between thoughts
 )
 ```
 
@@ -96,10 +96,10 @@ AI agents need to be processed each frame:
 
 ```gdscript
 func _process(delta: float) -> void:
-    for agent in ai_agents:
-        if agent.has_component("thinker"):
-            var thinker = agent.get_component("thinker")
-            thinker.process(delta)
+	for agent in ai_agents:
+		if agent.has_component("thinker"):
+			var thinker = agent.get_component("thinker")
+			thinker.process(delta)
 ```
 
 ## Included Agents
@@ -185,9 +185,9 @@ AI agents use `Shoggoth.generate_async()` for LLM calls:
 
 ```gdscript
 Shoggoth.generate_async(
-    prompt,           # Context + instructions
-    profile,          # System prompt (personality)
-    Callable(self, "_on_thought_complete")  # Callback
+	prompt,           # Context + instructions
+	profile,          # System prompt (personality)
+	Callable(self, "_on_thought_complete")  # Callback
 )
 ```
 

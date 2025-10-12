@@ -110,6 +110,35 @@ func get_all_memories() -> Array[Dictionary]:
 	return memories
 
 
+func get_random_memories(count: int = 5) -> Array[Dictionary]:
+	"""Get a random sample of memories from the entire history.
+
+	Args:
+		count: Number of random memories to retrieve
+
+	Returns:
+		Array of randomly selected memory Dictionaries
+
+	Notes:
+		Used by DREAM command to surface older memories
+		Returns fewer than count if not enough memories exist
+	"""
+	if memories.size() == 0:
+		return []
+
+	var result: Array[Dictionary] = []
+	var available: Array[Dictionary] = memories.duplicate()
+
+	# Shuffle and take up to count items
+	available.shuffle()
+	var take_count: int = min(count, available.size())
+
+	for i in range(take_count):
+		result.append(available[i])
+
+	return result
+
+
 func clear_memories() -> void:
 	"""Erase all stored memories.
 

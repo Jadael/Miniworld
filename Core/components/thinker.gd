@@ -87,7 +87,7 @@ func process(delta: float) -> void:
 
 	think_timer -= delta
 	if think_timer <= 0.0:
-		print("AI Agent %s is thinking..." % owner.name)
+		print("[Thinker] %s is thinking..." % owner.name)
 		think_timer = think_interval
 		_think()
 
@@ -104,7 +104,7 @@ func _think() -> void:
 	# Verify agent has a location
 	var location: WorldObject = owner.get_location()
 	if not location:
-		print("AI Agent %s has no location!" % owner.name)
+		print("[Thinker] %s has no location!" % owner.name)
 		is_thinking = false
 		return
 
@@ -114,14 +114,14 @@ func _think() -> void:
 
 	# Request LLM decision asynchronously
 	if Shoggoth and Shoggoth.ollama_client:
-		print("AI Agent %s sending LLM request..." % owner.name)
+		print("[Thinker] %s sending LLM request..." % owner.name)
 		Shoggoth.generate_async(prompt, profile, Callable(self, "_on_thought_complete"))
 	else:
 		# Fixed FIXME: Split ternary into separate conditional to avoid type incompatibility
 		var client_status: String = "N/A"
 		if Shoggoth:
 			client_status = str(Shoggoth.ollama_client)
-		print("AI Agent %s: No LLM available (Shoggoth: %s, client: %s)" % [owner.name, Shoggoth != null, client_status])
+		print("[Thinker] %s: No LLM available (Shoggoth: %s, client: %s)" % [owner.name, Shoggoth != null, client_status])
 
 		# Fallback: simple random behavior if no LLM
 		_fallback_behavior()
@@ -198,7 +198,7 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "%s\n\n" % context.profile
 
 	# FIRST presentation: Current situation (like an automatic LOOK)
-	prompt += "## You LOOK around and see:\n\n"
+	prompt += "You LOOK around and see:\n\n"
 	prompt += "Location: %s\n" % context.location_name
 	prompt += "%s\n\n" % context.location_description
 
@@ -214,11 +214,12 @@ func _construct_prompt(context: Dictionary) -> String:
 	else:
 		prompt += "You are alone.\n\n"
 
-	# Recent observations from memory
+	# Recent observations from memory - presented as a transcript scroll
 	if context.recent_memories.size() > 0:
-		prompt += "## Recent Memories\n\n"
+		prompt += "## Recent Events (what you've been doing and seeing)\n\n"
 		for memory in context.recent_memories:
-			prompt += "- %s\n" % memory
+			var mem_dict: Dictionary = memory as Dictionary
+			prompt += "%s\n" % mem_dict.content
 		prompt += "\n"
 
 	# SECOND presentation: Reinforce current situation after memories
@@ -237,25 +238,27 @@ func _construct_prompt(context: Dictionary) -> String:
 	else:
 		prompt += "You are alone.\n\n"
 
-	# Anti-repetition hints
-	prompt += "[color=yellow][b]Hint:[/b][/color] Think about what's changed since your last action. "
-	prompt += "If you feel stuck or keep doing the same thing, try something different! "
+	# Anti-repetition hints (no color tags for LLM)
+	prompt += "Hint: Review your prior command and what happened since then. "
+	prompt += "If you are stuck or keep doing the same thing, try something different! "
 	prompt += "Simply looking around repeatedly without new information wastes time. "
 	prompt += "If nothing has changed, consider moving to a different location or initiating conversation.\n\n"
 
 	# Available command reference
 	prompt += "## Available Commands\n\n"
-	prompt += "- look: Observe your surroundings (only useful if something changed)\n"
-	prompt += "- go <exit>: Move to another location\n"
-	prompt += "- say <message>: Speak to others\n"
-	prompt += "- emote <action>: Perform an action\n"
-	prompt += "- examine <target>: Look at something/someone closely\n\n"
+	prompt += "- LOOK: Observe your surroundings (only useful if something changed)\n"
+	prompt += "- GO exit: Move to another location\n"
+	prompt += "- SAY message: Speak to others\n"
+	prompt += "- EMOTE action: Perform an action\n"
+	prompt += "- EXAMINE target: Look at something/someone closely\n"
+	prompt += "- DREAM: Review jumbled memories for new insights (when feeling stuck or curious)\n\n"
 
 	# Response format instructions
-	prompt += "What do you want to do? Your REASON should explain why this action makes sense now, "
-	prompt += "and how it's different from what you've been doing. Respond with:\n"
+	prompt += "What do you want to do? Include a REASON to record your internal "
+	prompt += "reasoning (this is private and not visible to others) for your own future freference."
+	prompt += "\nRespond with:\n"
 	prompt += "COMMAND: <command>\n"
-	prompt += "REASON: <detailed explanation of why you're doing this and how it advances your goals>\n"
+	prompt += "REASON: <optional - detailed explanation of why you're doing this and how it advances your goals>\n"
 
 	return prompt
 
@@ -312,7 +315,7 @@ func _fallback_behavior() -> void:
 		Called when Shoggoth or its client is unavailable.
 		Provides minimal autonomous activity for debugging.
 	"""
-	print("AI Agent %s using fallback behavior (no LLM)" % owner.name)
+	print("[Thinker] %s using fallback behavior (no LLM)" % owner.name)
 
 	# Perform simple observation action
 	if owner.has_component("actor"):

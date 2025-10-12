@@ -126,35 +126,46 @@ func _create_default_world() -> void:
 	AIAgent.create_moss(library)
 
 func _setup_player() -> void:
-	"""Create the player character and place in starting room.
+	"""Setup player character - load from vault or create new.
 
-	Constructs the player WorldObject with Actor and Memory components,
-	places them in the first available room, and connects event signals
-	to UI update handlers.
+	Checks if a player character already exists in the loaded world.
+	If found, uses the existing player. Otherwise, creates a new player
+	with Actor and Memory components.
 
 	Notes:
 		Player is named "The Traveler" to avoid confusing LLMs with
-		pronoun ambiguity (using "You" creates unclear references in prompts)
+		pronoun ambiguity (using "You" creates unclear references in prompts).
+		Player character persists in vault as a character file.
 	"""
-	player = WorldKeeper.create_object("player", "The Traveler")
+	# Check if player already exists (loaded from vault)
+	# Note: We look up by name since the ID changes after load/save
+	player = WorldKeeper.find_object_by_name("The Traveler")
 
-	# Add Actor component for command execution
-	var actor_comp: ActorComponent = ActorComponent.new()
-	player.add_component("actor", actor_comp)
+	if player:
+		print("GameController: Found existing player character: %s" % player.name)
+	else:
+		print("GameController: Creating new player character")
+		player = WorldKeeper.create_object("player", "The Traveler")
 
-	# Add Memory component for storing experiences
-	var memory_comp: MemoryComponent = MemoryComponent.new()
-	player.add_component("memory", memory_comp)
+		# Add Actor component for command execution
+		var actor_comp_new: ActorComponent = ActorComponent.new()
+		player.add_component("actor", actor_comp_new)
 
-	# Place player in first available room
-	var rooms: Array = WorldKeeper.get_all_rooms()
-	if rooms.size() > 0:
-		player.move_to(rooms[0])
-		print("GameController: Player placed in %s (%s)" % [rooms[0].name, rooms[0].id])
+		# Add Memory component for storing experiences
+		var memory_comp_new: MemoryComponent = MemoryComponent.new()
+		player.add_component("memory", memory_comp_new)
 
-	# Connect actor events to UI handlers
-	actor_comp.command_executed.connect(_on_command_executed)
-	actor_comp.event_observed.connect(_on_event_observed)
+		# Place player in first available room
+		var rooms: Array = WorldKeeper.get_all_rooms()
+		if rooms.size() > 0:
+			player.move_to(rooms[0])
+			print("GameController: Player placed in %s (%s)" % [rooms[0].name, rooms[0].id])
+
+	# Connect actor events to UI handlers (always needed, even for loaded player)
+	var actor_comp: ActorComponent = player.get_component("actor") as ActorComponent
+	if actor_comp:
+		actor_comp.command_executed.connect(_on_command_executed)
+		actor_comp.event_observed.connect(_on_event_observed)
 
 func _setup_ai_agents() -> void:
 	"""Setup AI agents - load from vault or create defaults.

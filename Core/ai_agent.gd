@@ -66,9 +66,13 @@ static func create(name: String, profile: String, starting_location: WorldObject
 		agent.move_to(location)
 
 	# Wire up memory recording for actions
+	# Store command and result in MOO transcript format: "> command" followed by result
 	actor_comp.command_executed.connect(func(cmd: String, result: Dictionary):
 		if result.success:
-			memory_comp.add_memory("action", "I %s: %s" % [cmd, result.message])
+			# Format as MOO transcript: show command with "> " prefix, then result
+			# This makes it clear what the agent typed and what happened
+			var transcript: String = "> %s\n%s" % [cmd, result.message]
+			memory_comp.add_memory("action", transcript)
 	)
 
 	# Wire up memory recording for observations
@@ -79,8 +83,10 @@ static func create(name: String, profile: String, starting_location: WorldObject
 	)
 
 	# Wire up memory recording for decision-making rationale
+	# Store just the reasoning, since the action itself is already recorded
 	thinker_comp.thought_completed.connect(func(command: String, reason: String):
-		memory_comp.add_memory("thought", "I decided to %s because %s" % [command, reason])
+		if reason != "":
+			memory_comp.add_memory("thought", "Reasoning: %s" % reason)
 	)
 
 	print("AI Agent created: %s (%s) at %s" % [name, agent.id, location.name if location else "void"])
