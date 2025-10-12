@@ -51,10 +51,18 @@ func _ready() -> void:
 
 	Creates an HTTPRequest node as a child and connects its request_completed
 	signal to our response handler.
+
+	Notes:
+		Sets body_size_limit to -1 (unlimited) and download_chunk_size to 65536
+		to handle large LLM responses without truncation.
 	"""
 	http_request = HTTPRequest.new()
 	add_child(http_request)
 	http_request.request_completed.connect(_on_request_completed)
+
+	# Configure for large LLM responses
+	http_request.body_size_limit = -1  # Unlimited response size
+	http_request.download_chunk_size = 65536  # 64KB chunks for better performance
 
 
 func set_host(new_host: String) -> void:

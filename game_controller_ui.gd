@@ -54,13 +54,41 @@ func _ready() -> void:
 	_initial_look()
 
 func _setup_world() -> void:
-	"""Create the initial three-room world with connected exits.
+	"""Setup world from vault or create defaults.
+
+	Attempts to load world from markdown vault. If vault has no
+	locations, creates the default three-room world and saves it
+	to the vault for future sessions.
+
+	Notes:
+		Default world: Lobby, Garden, and Library with connected exits
+	"""
+	# Try to load from vault
+	var location_files: Array[String] = MarkdownVault.list_files(MarkdownVault.LOCATIONS_PATH, ".md")
+
+	if location_files.size() > 0:
+		print("GameController: Loading world from vault...")
+		WorldKeeper.load_world_from_vault()
+	else:
+		print("GameController: No vault found, creating default world...")
+		_create_default_world()
+		WorldKeeper.save_world_to_vault()
+
+
+func _create_default_world() -> void:
+	"""Create the default three-room world with connected exits and AI agents.
 
 	Constructs Lobby, Garden, and Library rooms, adds LocationComponents
 	to each, and creates navigable exits:
 	- Lobby: north/garden to Garden, east/library to Library
 	- Garden: south/lobby back to Lobby
 	- Library: west/lobby back to Lobby
+
+	Also creates default AI agents (Eliza and Moss) and places them in
+	appropriate rooms.
+
+	Notes:
+		Called by _setup_world() when vault is empty
 	"""
 	# Create Lobby room
 	var lobby: WorldObject = WorldKeeper.create_room("The Lobby",
@@ -92,14 +120,23 @@ func _setup_world() -> void:
 	library_loc.add_exit("lobby", lobby)
 	library_loc.add_exit("west", lobby)
 
+	# Create default AI agents
+	print("GameController: Creating default AI agents (Eliza and Moss)...")
+	AIAgent.create_eliza(garden)
+	AIAgent.create_moss(library)
+
 func _setup_player() -> void:
 	"""Create the player character and place in starting room.
 
 	Constructs the player WorldObject with Actor and Memory components,
 	places them in the first available room, and connects event signals
 	to UI update handlers.
+
+	Notes:
+		Player is named "The Traveler" to avoid confusing LLMs with
+		pronoun ambiguity (using "You" creates unclear references in prompts)
 	"""
-	player = WorldKeeper.create_object("player", "You")
+	player = WorldKeeper.create_object("player", "The Traveler")
 
 	# Add Actor component for command execution
 	var actor_comp: ActorComponent = ActorComponent.new()
@@ -113,17 +150,47 @@ func _setup_player() -> void:
 	var rooms: Array = WorldKeeper.get_all_rooms()
 	if rooms.size() > 0:
 		player.move_to(rooms[0])
+		print("GameController: Player placed in %s (%s)" % [rooms[0].name, rooms[0].id])
 
 	# Connect actor events to UI handlers
 	actor_comp.command_executed.connect(_on_command_executed)
 	actor_comp.event_observed.connect(_on_event_observed)
 
 func _setup_ai_agents() -> void:
-	"""Spawn AI agents (Eliza and Moss) in appropriate rooms.
+	"""Setup AI agents - load from vault or create defaults.
 
-	Searches for Garden and Library rooms by name, spawns Eliza in the
-	Garden and Moss in the Library. If named rooms don't exist, falls
-	back to root_room. Connects AI actor events to UI update handlers.
+	Checks if agents already exist in the world (loaded from vault).
+	If not found, creates default agents (Eliza and Moss) and places them
+	in appropriate rooms. Connects AI actor events to UI update handlers.
+
+	Notes:
+		Agents persist in the vault as character files in vault/world/objects/characters/
+	"""
+	# Collect all existing AI agents from loaded world
+	var existing_agents: Array[WorldObject] = WorldKeeper.get_objects_with_component("thinker")
+
+	if existing_agents.size() > 0:
+		print("GameController: Found %d existing AI agents in world" % existing_agents.size())
+		ai_agents = existing_agents
+	else:
+		print("GameController: No AI agents found, creating defaults...")
+		_create_default_agents()
+
+	# Connect AI agent command events to UI update handlers
+	for agent in ai_agents:
+		if agent.has_component("actor"):
+			var actor_comp: ActorComponent = agent.get_component("actor") as ActorComponent
+			actor_comp.command_executed.connect(_on_ai_command_executed)
+
+
+func _create_default_agents() -> void:
+	"""Create default AI agents (Eliza and Moss).
+
+	Called by _setup_ai_agents() when no agents exist in the world.
+	Creates Eliza in the Garden and Moss in the Library.
+
+	Notes:
+		These agents will be saved to the vault when save_world_to_vault() is called
 	"""
 	var rooms: Array = WorldKeeper.get_all_rooms()
 
@@ -143,12 +210,6 @@ func _setup_ai_agents() -> void:
 	# Create Moss in the Library (or fallback to root room)
 	var moss: WorldObject = AIAgent.create_moss(library if library else WorldKeeper.root_room)
 	ai_agents.append(moss)
-
-	# Connect AI agent command events to UI update handlers
-	for agent in ai_agents:
-		if agent.has_component("actor"):
-			var actor_comp: ActorComponent = agent.get_component("actor") as ActorComponent
-			actor_comp.command_executed.connect(_on_ai_command_executed)
 
 func _on_ai_command_executed(_command: String, _result: Dictionary) -> void:
 	"""Handle AI agent command execution.

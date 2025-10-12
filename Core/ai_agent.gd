@@ -85,7 +85,29 @@ static func create(name: String, profile: String, starting_location: WorldObject
 
 	print("AI Agent created: %s (%s) at %s" % [name, agent.id, location.name if location else "void"])
 
+	# Save agent to vault immediately
+	_save_agent_to_vault(agent)
+
 	return agent
+
+
+static func _save_agent_to_vault(agent: WorldObject) -> void:
+	"""Save an agent's character file to the vault.
+
+	Args:
+		agent: The WorldObject representing the agent
+
+	Notes:
+		Saves immediately to ensure character files exist from creation
+	"""
+	var filename: String = MarkdownVault.sanitize_filename(agent.name) + ".md"
+	var path: String = MarkdownVault.OBJECTS_PATH + "/characters/" + filename
+	var content: String = agent.to_markdown()
+
+	if MarkdownVault.write_file(path, content):
+		print("AIAgent: Saved %s to vault at %s" % [agent.name, path])
+	else:
+		push_error("AIAgent: Failed to save %s to vault" % agent.name)
 
 static func create_eliza(starting_location: WorldObject = null) -> WorldObject:
 	"""Create Eliza - a friendly, curious conversationalist.

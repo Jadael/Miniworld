@@ -110,15 +110,20 @@ func _create_default_config() -> void:
 
 	Default configuration:
 	- host: http://localhost:11434 (standard Ollama port)
-	- model: gemma3:27b (available model)
+	- model: gemma3:4b (faster model for testing)
 	- temperature: 0.7 (moderate creativity)
-	- max_tokens: 2048 (reasonable response length)
+	- max_tokens: 32765 (generous response length for local inference)
 	- stop_tokens: [] (no custom stop sequences)
+
+	Notes:
+		max_tokens set to 32765 since we're running local inference and can afford
+		longer responses. This prevents AI agents from getting cut off mid-thought.
+		Using gemma3:4b for faster inference during development/testing.
 	"""
 	config.set_value("ollama", "host", "http://localhost:11434")
-	config.set_value("ollama", "model", "gemma3:27b")
+	config.set_value("ollama", "model", "gemma3:4b")
 	config.set_value("ollama", "temperature", 0.7)
-	config.set_value("ollama", "max_tokens", 2048)
+	config.set_value("ollama", "max_tokens", 32765)
 	config.set_value("ollama", "stop_tokens", [])
 	config.save(CONFIG_FILE)
 	#Chronicler.log_event(self, "default_config_created", {})
@@ -408,13 +413,24 @@ func _apply_task_parameters() -> Dictionary:
 	Notes:
 		Task-specific parameters override config defaults. Unknown parameters are
 		passed through unchanged in case Ollama supports them.
+		Config defaults are applied first, then task parameters override them.
 	"""
 	var options = {}
 
-	# Get default stop tokens from config
-	var stop_tokens = []
+	# Apply config defaults first
 	if config:
-		stop_tokens = config.get_value("ollama", "stop_tokens", [])
+		# Apply max_tokens from config as num_predict
+		var max_tokens: int = config.get_value("ollama", "max_tokens", 32765)
+		options["num_predict"] = max_tokens
+
+		# Apply temperature from config
+		var temperature: float = config.get_value("ollama", "temperature", 0.7)
+		options["temperature"] = temperature
+
+		# Get default stop tokens from config
+		var stop_tokens: Array = config.get_value("ollama", "stop_tokens", [])
+		if stop_tokens.size() > 0:
+			options["stop"] = stop_tokens
 	else:
 		push_error("Shoggoth: Config is null in _apply_task_parameters - this should not happen!")
 		#Chronicler.log_event(self, "config_null_error", {"function": "_apply_task_parameters"})
@@ -423,21 +439,21 @@ func _apply_task_parameters() -> Dictionary:
 	if not current_task.has("parameters"):
 		return options
 
+	# Task-specific parameters override config defaults
 	var parameters = current_task["parameters"] as Dictionary
 	for key in parameters:
 		match key:
 			"stop_tokens":
-				stop_tokens = parameters[key]
+				options["stop"] = parameters[key]
 			"max_length":
 				options["num_predict"] = parameters[key]
 			"temperature":
 				options["temperature"] = parameters[key]
+			"num_predict":  # Allow direct override
+				options["num_predict"] = parameters[key]
 			_:
 				# Pass through other options to Ollama
 				options[key] = parameters[key]
-
-	if stop_tokens.size() > 0:
-		options["stop"] = stop_tokens
 
 	#Chronicler.log_event(self, "task_parameters_applied", {
 	#	"task_id": current_task["id"],

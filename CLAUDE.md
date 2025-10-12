@@ -222,3 +222,71 @@ After completing documentation work:
 ### Comments Are Code
 
 Remember: In this project, comments and documentation are as critical as the code itself. Incomplete documentation is a bug, not a nice-to-have. Every entity in the system deserves clear documentation of its purpose, behavior, and relationships.
+
+---
+
+## Established Patterns and Anti-Patterns
+
+### Daemon Callback Management (Shoggoth Pattern)
+
+**DO**: Have the daemon manage all callbacks internally
+```gdscript
+# In Shoggoth (daemon)
+var pending_callbacks: Dictionary = {}  # task_id → callback
+
+func generate_async(prompt: String, system_prompt: String, callback: Callable) -> String:
+    var task_id = submit_chat(messages)
+    pending_callbacks[task_id] = callback  # Register callback
+    return task_id
+
+func _emit_task_completion(result: String) -> void:
+    var task_id = current_task.get("id", "unknown")
+
+    # Invoke registered callback
+    if pending_callbacks.has(task_id):
+        var callback: Callable = pending_callbacks[task_id]
+        pending_callbacks.erase(task_id)  # Remove after use
+        callback.call(result)
+
+    task_completed.emit(task_id, result)  # Also emit signal
+```
+
+**DON'T**: Have callers create temporary signal connections
+```gdscript
+# ANTI-PATTERN - causes null reference errors
+func generate_async_WRONG(prompt: String, callback: Callable) -> String:
+    var task_id = submit_chat(messages)
+
+    var on_complete: Callable = func(id: String, result: String):
+        if id == task_id:
+            callback.call(result)
+            task_completed.disconnect(on_complete)  # ❌ Can become null!
+
+    task_completed.connect(on_complete)
+    return task_id
+```
+
+**Rationale**:
+- Daemons are singletons - they should be the single source of truth
+- Temporary connections create lifetime management issues
+- Dictionary lookups are simple and reliable
+- Callers don't need to understand signal mechanics
+
+### Signal vs. Callback Decision Tree
+
+**Use Signals when**:
+- Multiple listeners need to know about events
+- Loose coupling is desired
+- Event propagation through scene tree
+- Example: `EventWeaver` broadcasting observations
+
+**Use Callbacks when**:
+- Single caller needs specific task result
+- One-shot operations
+- The daemon manages task lifecycle
+- Example: `Shoggoth.generate_async()` with completion callback
+
+**Use Both when**:
+- General system needs to observe (signal)
+- AND specific caller needs result (callback)
+- Example: Shoggoth emits `task_completed` signal AND invokes registered callback

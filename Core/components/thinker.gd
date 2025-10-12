@@ -179,6 +179,9 @@ func _construct_prompt(context: Dictionary) -> String:
 	Builds a structured prompt containing agent identity, current
 	situation, available actions, and instructions for response format.
 
+	Uses the Python prototype strategy: repeats current situation at
+	the beginning and end to act like an automatic LOOK command.
+
 	Args:
 		context: Dictionary from _build_context() with situation info
 
@@ -194,9 +197,9 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "You are %s.\n\n" % context.name
 	prompt += "%s\n\n" % context.profile
 
-	# Current situation description
-	prompt += "## Current Situation\n\n"
-	prompt += "You are in: %s\n" % context.location_name
+	# FIRST presentation: Current situation (like an automatic LOOK)
+	prompt += "## You LOOK around and see:\n\n"
+	prompt += "Location: %s\n" % context.location_name
 	prompt += "%s\n\n" % context.location_description
 
 	# Available exits
@@ -218,18 +221,41 @@ func _construct_prompt(context: Dictionary) -> String:
 			prompt += "- %s\n" % memory
 		prompt += "\n"
 
+	# SECOND presentation: Reinforce current situation after memories
+	prompt += "## Now that you're caught up, remember your current situation:\n\n"
+	prompt += "You are %s in %s.\n" % [context.name, context.location_name]
+	prompt += "%s\n\n" % context.location_description
+
+	# Repeat exits and occupants for reinforcement
+	if context.exits.size() > 0:
+		prompt += "Exits: %s\n" % ", ".join(context.exits)
+	else:
+		prompt += "No exits visible.\n"
+
+	if context.occupants.size() > 0:
+		prompt += "Also here: %s\n\n" % ", ".join(context.occupants)
+	else:
+		prompt += "You are alone.\n\n"
+
+	# Anti-repetition hints
+	prompt += "[color=yellow][b]Hint:[/b][/color] Think about what's changed since your last action. "
+	prompt += "If you feel stuck or keep doing the same thing, try something different! "
+	prompt += "Simply looking around repeatedly without new information wastes time. "
+	prompt += "If nothing has changed, consider moving to a different location or initiating conversation.\n\n"
+
 	# Available command reference
 	prompt += "## Available Commands\n\n"
-	prompt += "- look: Observe your surroundings\n"
+	prompt += "- look: Observe your surroundings (only useful if something changed)\n"
 	prompt += "- go <exit>: Move to another location\n"
 	prompt += "- say <message>: Speak to others\n"
 	prompt += "- emote <action>: Perform an action\n"
 	prompt += "- examine <target>: Look at something/someone closely\n\n"
 
 	# Response format instructions
-	prompt += "What do you want to do? Respond with:\n"
+	prompt += "What do you want to do? Your REASON should explain why this action makes sense now, "
+	prompt += "and how it's different from what you've been doing. Respond with:\n"
 	prompt += "COMMAND: <command>\n"
-	prompt += "REASON: <why you want to do this>\n"
+	prompt += "REASON: <detailed explanation of why you're doing this and how it advances your goals>\n"
 
 	return prompt
 

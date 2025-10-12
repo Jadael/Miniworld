@@ -118,6 +118,10 @@ func execute_command(command: String, args: Array = []) -> Dictionary:
 			result = _cmd_exit(args)
 		"@teleport", "@tp":
 			result = _cmd_teleport(args)
+		"@save":
+			result = _cmd_save(args)
+		"@impersonate", "@imp":
+			result = _cmd_impersonate(args)
 		_:
 			result = {"success": false, "message": "Unknown command: %s" % command}
 
@@ -352,6 +356,7 @@ func observe_event(event: Dictionary) -> void:
 	if event.get("actor") == owner:
 		return
 
+	print("[ActorComponent] %s observed event: %s" % [owner.name, event.get("text", event.get("message", "unknown event"))])
 	event_observed.emit(event)
 
 
@@ -551,13 +556,13 @@ func _cmd_exit(args: Array) -> Dictionary:
 
 
 func _cmd_teleport(args: Array) -> Dictionary:
-	"""@TELEPORT command - Instantly jump to any room (builder command).
+	"""@TELEPORT command - Instantly jump to any room or character's location (builder command).
 
 	Moves the actor directly to the specified room without requiring
-	an exit. Broadcasts dramatic teleport events to both locations.
+	an exit. Can teleport to a room by name/#ID, or to where a character is.
 
 	Args:
-		args: Array containing room name or #ID
+		args: Array containing room name, #ID, or character name
 
 	Returns:
 		Dictionary with:
@@ -567,31 +572,49 @@ func _cmd_teleport(args: Array) -> Dictionary:
 
 	Notes:
 		This is a builder/admin command that bypasses normal movement.
+		If you name a character, it teleports you to that character's location.
 		Automatically performs a look command at the destination.
 	"""
 	if args.size() == 0:
-		return {"success": false, "message": "Usage: @teleport <room name or #ID>"}
+		return {"success": false, "message": "Usage: @teleport <room name, #ID, or character name>"}
 
 	var dest_name: String = " ".join(args)
 	var destination: WorldObject = null
 
-	# Lookup destination room by ID or name
+	# Try ID-based lookup first
 	if dest_name.begins_with("#"):
-		# ID-based lookup
 		destination = WorldKeeper.get_object(dest_name)
+		if destination and not destination.has_component("location"):
+			return {"success": false, "message": "%s [%s] is not a room" % [destination.name, destination.id]}
 	else:
-		# Name-based lookup
+		# Try room name lookup (case-insensitive)
 		var all_rooms: Array = WorldKeeper.get_all_rooms()
 		for room in all_rooms:
 			if room.name.to_lower() == dest_name.to_lower():
 				destination = room
 				break
 
+		# If no room found, try finding it as a character and teleport to their location
+		if destination == null:
+			var target_char: WorldObject = WorldKeeper.find_object_by_name(dest_name)
+			if target_char:
+				var char_location: WorldObject = target_char.get_location()
+				if char_location and char_location.has_component("location"):
+					destination = char_location
+					print("Teleporting to %s's location: %s" % [target_char.name, destination.name])
+				else:
+					return {"success": false, "message": "%s is not in a valid location" % target_char.name}
+
 	if destination == null:
-		return {"success": false, "message": "Cannot find room: %s" % dest_name}
+		# Show helpful error with available rooms
+		var room_list: String = "\nAvailable rooms:\n"
+		var all_rooms: Array = WorldKeeper.get_all_rooms()
+		for room in all_rooms:
+			room_list += "  • %s [%s]\n" % [room.name, room.id]
+		return {"success": false, "message": "Cannot find room or character: %s%s" % [dest_name, room_list]}
 
 	if not destination.has_component("location"):
-		return {"success": false, "message": "%s is not a room." % destination.name}
+		return {"success": false, "message": "%s is not a valid location" % destination.name}
 
 	# Broadcast dramatic departure event to old location
 	if current_location:
@@ -616,3 +639,104 @@ func _cmd_teleport(args: Array) -> Dictionary:
 
 	# Automatically look at the new location
 	return _cmd_look([])
+
+
+func _cmd_save(_args: Array) -> Dictionary:
+	"""@SAVE command - Save the world to markdown vault (builder command).
+
+	Triggers WorldKeeper.save_world_to_vault() to persist the current
+	world state to markdown files.
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): True if save succeeded
+		- message (String): Confirmation or error message
+
+	Notes:
+		This is a builder/admin command for manually saving world state
+	"""
+	var success: bool = WorldKeeper.save_world_to_vault()
+
+	if success:
+		return {
+			"success": true,
+			"message": "[color=green]World saved to vault![/color]\nCheck the console output for details."
+		}
+	else:
+		return {
+			"success": false,
+			"message": "[color=red]Failed to save world to vault.[/color]\nCheck the console for errors."
+		}
+
+
+func _cmd_impersonate(args: Array) -> Dictionary:
+	"""@IMPERSONATE command - See the game from an AI agent's perspective (debug command).
+
+	Shows what prompt and context an AI agent would see, including their
+	memories, location, occupants, and exact LLM prompt.
+
+	Args:
+		args: Array containing the agent name as first element
+
+	Returns:
+		Dictionary with:
+		- success (bool): True if agent found and has thinker component
+		- message (String): The agent's perspective including full prompt
+
+	Notes:
+		This is a debug/admin command for understanding AI agent behavior.
+		Useful for debugging why agents make certain decisions.
+	"""
+	if args.size() == 0:
+		return {"success": false, "message": "Usage: @impersonate <agent name>"}
+
+	var agent_name: String = args[0]
+
+	# Find the agent
+	var agent: WorldObject = WorldKeeper.find_object_by_name(agent_name)
+	if not agent:
+		return {"success": false, "message": "Cannot find agent: %s" % agent_name}
+
+	if not agent.has_component("thinker"):
+		return {"success": false, "message": "%s is not an AI agent (no thinker component)" % agent_name}
+
+	# Build the agent's context
+	var thinker_comp: ThinkerComponent = agent.get_component("thinker") as ThinkerComponent
+	var context: Dictionary = thinker_comp._build_context()
+	var prompt: String = thinker_comp._construct_prompt(context)
+
+	# Format the perspective
+	var message: String = "[color=cyan][b]=== Impersonating %s ===[/b][/color]\n\n" % agent_name
+
+	message += "[color=yellow][b]Current Situation:[/b][/color]\n"
+	message += "Location: %s\n" % context.location_name
+	message += "Description: %s\n" % context.location_description
+
+	if context.exits.size() > 0:
+		message += "Exits: %s\n" % ", ".join(context.exits)
+	else:
+		message += "Exits: None\n"
+
+	if context.occupants.size() > 0:
+		message += "Also here: %s\n\n" % ", ".join(context.occupants)
+	else:
+		message += "Alone\n\n"
+
+	if context.recent_memories.size() > 0:
+		message += "[color=yellow][b]Recent Memories (%d):[/b][/color]\n" % context.recent_memories.size()
+		for memory in context.recent_memories:
+			message += "- %s\n" % memory
+		message += "\n"
+	else:
+		message += "[color=yellow][b]No recent memories[/b][/color]\n\n"
+
+	message += "[color=yellow][b]Full Prompt Sent to LLM:[/b][/color]\n"
+	message += "[color=gray]%s[/color]\n" % prompt.replace("\n", "\n")
+
+	return {
+		"success": true,
+		"message": message
+	}

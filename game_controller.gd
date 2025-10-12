@@ -119,11 +119,12 @@ func _setup_player() -> void:
 	observed events appear in the console.
 
 	Notes:
-		The player's name is "You" to support second-person narrative.
+		Player is named "The Traveler" to avoid confusing LLMs with
+		pronoun ambiguity (using "You" creates unclear references in prompts).
 		If no rooms exist, the player will be created but locationless.
 	"""
-	# Create the player WorldObject with ID "player" and name "You"
-	player = WorldKeeper.create_object("player", "You")
+	# Create the player WorldObject with ID "player" and name "The Traveler"
+	player = WorldKeeper.create_object("player", "The Traveler")
 
 	# Add Actor component (enables command execution)
 	var actor_comp: ActorComponent = ActorComponent.new()

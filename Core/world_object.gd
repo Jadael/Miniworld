@@ -424,3 +424,231 @@ func get_description() -> String:
 			desc = component.enhance_description(desc)
 
 	return desc
+
+
+## Serialization methods for markdown vault persistence
+
+func to_markdown() -> String:
+	"""Serialize this WorldObject to markdown format with YAML frontmatter.
+
+	Returns:
+		Complete markdown document representing this object
+
+	Notes:
+		Creates Obsidian-compatible markdown with frontmatter containing
+		metadata and markdown body with detailed information.
+		Components are serialized if they implement to_dict() method.
+	"""
+	# Build frontmatter
+	var frontmatter = {
+		"object_id": id,
+		"type": _get_object_type(),
+		"created": Time.get_datetime_string_from_unix_time(created_at),
+		"modified": MarkdownVault.get_timestamp()
+	}
+
+	# Add location if object is contained
+	if parent and parent.has_flag("is_room"):
+		frontmatter["location"] = "[[%s]]" % parent.name
+
+	var content = MarkdownVault.create_frontmatter(frontmatter)
+
+	# Add object name as title
+	content += "# %s\n\n" % name
+
+	# Add description
+	content += "## Description\n%s\n\n" % description
+
+	# Add aliases if any
+	if aliases.size() > 0:
+		content += "## Aliases\n"
+		for alias in aliases:
+			content += "- %s\n" % alias
+		content += "\n"
+
+	# Add properties
+	if properties.size() > 0:
+		content += "## Properties\n"
+		for key in properties.keys():
+			content += "- %s: %s\n" % [key, str(properties[key])]
+		content += "\n"
+
+	# Add flags
+	if flags.size() > 0:
+		content += "## Flags\n"
+		for key in flags.keys():
+			if flags[key]:
+				content += "- %s\n" % key
+		content += "\n"
+
+	# Add components
+	if components.size() > 0:
+		content += "## Components\n"
+		for component_name in components.keys():
+			content += "- %s\n" % component_name
+		content += "\n"
+
+	# Add exits section for LocationComponents (human-readable format)
+	if has_component("location"):
+		var loc_comp = get_component("location")
+		if loc_comp.has_method("get_exits"):
+			var location_exits: Dictionary = loc_comp.get_exits()
+			if location_exits.size() > 0:
+				content += "## Exits\n"
+
+				# Group exits by destination for cleaner output
+				var exits_by_dest: Dictionary = {}  # destination -> [alias1, alias2, ...]
+				for exit_name in location_exits.keys():
+					var dest: WorldObject = location_exits[exit_name]
+					if dest:
+						if not exits_by_dest.has(dest.name):
+							exits_by_dest[dest.name] = []
+						exits_by_dest[dest.name].append(exit_name)
+
+				# Write one line per destination with all aliases
+				for dest_name in exits_by_dest.keys():
+					var aliases_list: Array = exits_by_dest[dest_name]
+					content += "- [[%s]] | %s\n" % [dest_name, " | ".join(aliases_list)]
+				content += "\n"
+
+	# Add contents if any
+	if contents.size() > 0:
+		content += "## Contents\n"
+		for obj in contents:
+			content += "- [[%s]]\n" % obj.name
+		content += "\n"
+
+	return content
+
+
+func from_markdown(markdown_content: String) -> void:
+	"""Deserialize markdown content into this WorldObject.
+
+	Args:
+		markdown_content: Full markdown document with frontmatter
+
+	Notes:
+		Parses YAML frontmatter and markdown sections to restore object state.
+		Does NOT restore components (those must be re-added programmatically).
+		Does NOT restore parent/contents relationships (handled by WorldKeeper).
+	"""
+	var parsed = MarkdownVault.parse_frontmatter(markdown_content)
+	var frontmatter = parsed.frontmatter
+	var body = parsed.body
+
+	# Restore basic properties from frontmatter
+	if frontmatter.has("object_id"):
+		id = frontmatter.object_id
+
+	# Parse markdown sections
+	var sections = _parse_markdown_sections(body)
+
+	# Restore name from title
+	if sections.has("title"):
+		name = sections.title
+
+	# Restore description
+	if sections.has("Description"):
+		description = sections.Description.strip_edges()
+
+	# Restore aliases
+	if sections.has("Aliases"):
+		aliases.clear()
+		for line in sections.Aliases.split("\n"):
+			if line.begins_with("- "):
+				aliases.append(line.substr(2).strip_edges())
+
+	# Restore properties
+	if sections.has("Properties"):
+		properties.clear()
+		for line in sections.Properties.split("\n"):
+			if line.begins_with("- ") and ":" in line:
+				var parts = line.substr(2).split(":", true, 1)
+				if parts.size() == 2:
+					var key = parts[0].strip_edges()
+					var value_str = parts[1].strip_edges()
+					properties[key] = _parse_value(value_str)
+
+	# Restore flags
+	if sections.has("Flags"):
+		flags.clear()
+		for line in sections.Flags.split("\n"):
+			if line.begins_with("- "):
+				var flag_name = line.substr(2).strip_edges()
+				flags[flag_name] = true
+
+
+func _get_object_type() -> String:
+	"""Determine the type string for this object based on flags.
+
+	Returns:
+		Type string like "location", "character", "item", or "object"
+	"""
+	if has_flag("is_room"):
+		return "location"
+	elif has_component("actor"):
+		return "character"
+	else:
+		return "object"
+
+
+func _parse_markdown_sections(markdown: String) -> Dictionary:
+	"""Parse markdown into sections based on headers.
+
+	Args:
+		markdown: Markdown content (without frontmatter)
+
+	Returns:
+		Dictionary with keys as section names and values as section content
+		Special key "title" contains the H1 heading
+	"""
+	var sections = {}
+	var lines = markdown.split("\n")
+	var current_section = ""
+	var current_content: Array[String] = []
+
+	for line in lines:
+		if line.begins_with("# "):
+			# H1 heading is the title
+			sections["title"] = line.substr(2).strip_edges()
+		elif line.begins_with("## "):
+			# Save previous section
+			if current_section != "":
+				sections[current_section] = "\n".join(current_content)
+			# Start new section
+			current_section = line.substr(3).strip_edges()
+			current_content.clear()
+		else:
+			# Add line to current section
+			current_content.append(line)
+
+	# Save final section
+	if current_section != "":
+		sections[current_section] = "\n".join(current_content)
+
+	return sections
+
+
+func _parse_value(value_str: String) -> Variant:
+	"""Parse a string value to appropriate type.
+
+	Args:
+		value_str: String representation of value
+
+	Returns:
+		Parsed value as bool, int, float, or string
+	"""
+	# Try boolean
+	if value_str.to_lower() in ["true", "false"]:
+		return value_str.to_lower() == "true"
+
+	# Try integer
+	if value_str.is_valid_int():
+		return value_str.to_int()
+
+	# Try float
+	if value_str.is_valid_float():
+		return value_str.to_float()
+
+	# Default to string
+	return value_str

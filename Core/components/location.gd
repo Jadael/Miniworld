@@ -141,3 +141,72 @@ func get_contents_description() -> String:
 			desc += "  - %s\n" % obj.name
 
 	return desc
+
+
+## Markdown Vault Persistence
+
+func parse_exits_from_markdown(markdown_body: String, room_by_name: Dictionary) -> void:
+	"""Parse and restore exits from markdown Exits section.
+
+	Exits format:
+	## Exits
+	- [[Destination Room]] | alias1 | alias2 | alias3
+
+	Args:
+		markdown_body: Markdown body content containing Exits section
+		room_by_name: Dictionary mapping room names to WorldObject instances
+
+	Notes:
+		Multiple aliases per destination create multiple exit entries
+		All point to the same destination WorldObject
+	"""
+	exits.clear()
+
+	# Find the Exits section
+	if not "## Exits" in markdown_body:
+		return
+
+	var lines: Array = markdown_body.split("\n")
+	var in_exits_section: bool = false
+
+	for line in lines:
+		if line.strip_edges() == "## Exits":
+			in_exits_section = true
+			continue
+
+		if in_exits_section:
+			# Stop at next section
+			if line.begins_with("## "):
+				break
+
+			# Parse exit line: - [[Destination]] | alias1 | alias2
+			if line.begins_with("- [["):
+				var exit_line: String = line.substr(2).strip_edges()  # Remove "- "
+
+				# Extract destination name from [[...]]
+				var dest_end: int = exit_line.find("]]")
+				if dest_end == -1:
+					continue
+
+				var dest_name: String = exit_line.substr(2, dest_end - 2).strip_edges()
+
+				# Extract aliases after the |
+				var aliases_start: int = exit_line.find("|", dest_end)
+				if aliases_start == -1:
+					continue
+
+				var aliases_str: String = exit_line.substr(aliases_start + 1).strip_edges()
+				var alias_list: Array = aliases_str.split("|")
+
+				# Resolve destination
+				if not room_by_name.has(dest_name):
+					push_warning("LocationComponent: Cannot resolve exit to '%s' - room not found" % dest_name)
+					continue
+
+				var dest_room: WorldObject = room_by_name[dest_name]
+
+				# Add all aliases pointing to this destination
+				for alias in alias_list:
+					var alias_name: String = alias.strip_edges()
+					if not alias_name.is_empty():
+						exits[alias_name.to_lower()] = dest_room

@@ -300,7 +300,383 @@ func create_room(room_name: String, room_description: String = "") -> WorldObjec
 	room.move_to(nexus)  # Rooms exist in the nexus
 	return room
 
-## Persistence (simplified for MVP - can expand later)
+## Markdown Vault Persistence
+
+func save_world_to_vault() -> bool:
+	"""Save entire world to markdown vault.
+
+	Creates/updates:
+	- vault/world/locations/<name>.md for each room
+	- vault/world/objects/characters/<name>.md for each character
+	- vault/world/world_state.md for snapshot
+
+	Returns:
+		true if all saves succeeded, false if any failed
+
+	Notes:
+		Uses WorldObject.to_markdown() for serialization
+		Skips nexus and root_room (foundation objects)
+	"""
+	var success: bool = true
+
+	# Save all rooms (except nexus and root_room which are foundation)
+	for room in get_all_rooms():
+		if room == nexus or room == root_room:
+			continue
+
+		var filename: String = MarkdownVault.sanitize_filename(room.name) + ".md"
+		var path: String = MarkdownVault.LOCATIONS_PATH + "/" + filename
+		var content: String = room.to_markdown()
+
+		if not MarkdownVault.write_file(path, content):
+			push_error("WorldKeeper: Failed to save room %s to vault" % room.name)
+			success = false
+
+	# Save all characters (objects with actor component)
+	var actors: Array[WorldObject] = get_objects_with_component("actor")
+	print("WorldKeeper: Found %d actors to save" % actors.size())
+
+	for obj in actors:
+		print("WorldKeeper: Saving actor: %s (ID: %s)" % [obj.name, obj.id])
+		var filename: String = MarkdownVault.sanitize_filename(obj.name) + ".md"
+		var path: String = MarkdownVault.OBJECTS_PATH + "/characters/" + filename
+		var content: String = obj.to_markdown()
+
+		print("WorldKeeper: Writing to path: %s" % path)
+		print("WorldKeeper: Content length: %d" % content.length())
+
+		if not MarkdownVault.write_file(path, content):
+			push_error("WorldKeeper: Failed to save character %s to vault" % obj.name)
+			success = false
+		else:
+			print("WorldKeeper: Successfully saved %s" % obj.name)
+
+		# Save memories if character has memory component
+		if obj.has_component("memory"):
+			var memory_comp: MemoryComponent = obj.get_component("memory") as MemoryComponent
+			memory_comp.save_all_memories_to_vault(obj.name)
+
+	# Create world state snapshot
+	_save_world_snapshot()
+
+	if success:
+		world_saved.emit()
+		print("WorldKeeper: World saved to vault at %s" % MarkdownVault.get_vault_path())
+
+	return success
+
+
+func load_world_from_vault() -> bool:
+	"""Load world from markdown vault.
+
+	Reads all markdown files and reconstructs the world.
+	Three-pass loading:
+	1. Create all location objects
+	2. Create all character objects
+	3. Restore relationships (parents, locations)
+
+	Returns:
+		true if load succeeded, false on error
+
+	Notes:
+		Preserves nexus and root_room (foundation objects)
+		Components must be restored based on markdown metadata
+	"""
+	print("WorldKeeper: Loading world from vault...")
+
+	# Clear existing world (except foundation objects)
+	_clear_dynamic_objects()
+
+	# Pass 1: Load all location files
+	var location_files: Array[String] = MarkdownVault.list_files(MarkdownVault.LOCATIONS_PATH, ".md")
+	for filename in location_files:
+		var path: String = MarkdownVault.LOCATIONS_PATH + "/" + filename
+		var content: String = MarkdownVault.read_file(path)
+
+		if content.is_empty():
+			push_warning("WorldKeeper: Empty or missing location file: %s" % filename)
+			continue
+
+		_load_location_from_markdown(content)
+
+	# Pass 2: Load all character files
+	var char_files: Array[String] = MarkdownVault.list_files(MarkdownVault.OBJECTS_PATH + "/characters", ".md")
+	for filename in char_files:
+		var path: String = MarkdownVault.OBJECTS_PATH + "/characters/" + filename
+		var content: String = MarkdownVault.read_file(path)
+
+		if content.is_empty():
+			push_warning("WorldKeeper: Empty or missing character file: %s" % filename)
+			continue
+
+		_load_character_from_markdown(content)
+
+	# Pass 3: Restore relationships from world_state.md (if it exists)
+	_restore_world_state()
+
+	world_loaded.emit()
+	print("WorldKeeper: World loaded from vault (%d locations, %d characters)" % [
+		location_files.size(),
+		char_files.size()
+	])
+
+	return true
+
+
+func _clear_dynamic_objects() -> void:
+	"""Clear all objects except nexus and root_room.
+
+	Preserves foundation objects (#0 and #1) while removing all
+	dynamically created objects.
+
+	Notes:
+		Used before loading world from vault
+	"""
+	var to_remove: Array[String] = []
+
+	for obj_id in objects:
+		if obj_id != "#0" and obj_id != "#1":
+			to_remove.append(obj_id)
+
+	for obj_id in to_remove:
+		objects.erase(obj_id)
+
+	print("WorldKeeper: Cleared %d dynamic objects" % to_remove.size())
+
+
+func _load_location_from_markdown(content: String) -> WorldObject:
+	"""Create a location from markdown file.
+
+	Args:
+		content: Full markdown content with frontmatter
+
+	Returns:
+		The created location WorldObject
+
+	Notes:
+		Parses frontmatter for metadata, body for properties
+		Adds LocationComponent if specified and restores component data
+	"""
+	var room: WorldObject = create_object("room", "temp")
+	room.from_markdown(content)
+	room.set_flag("is_room", true)
+	room.move_to(nexus)
+
+	# Add LocationComponent if specified
+	var parsed: Dictionary = MarkdownVault.parse_frontmatter(content)
+	if "## Components" in parsed.body and "location" in parsed.body:
+		var loc_comp: LocationComponent = LocationComponent.new()
+		room.add_component("location", loc_comp)
+		# Note: Exits will be restored later in _resolve_all_exits()
+
+	return room
+
+
+func _load_character_from_markdown(content: String) -> WorldObject:
+	"""Create a character from markdown file.
+
+	Args:
+		content: Full markdown content with frontmatter
+
+	Returns:
+		The created character WorldObject
+
+	Notes:
+		Restores components based on Components section
+		Loads memories from vault if MemoryComponent present
+		Does NOT restore location yet (done in pass 3)
+	"""
+	var char: WorldObject = create_object("character", "temp")
+	char.from_markdown(content)
+
+	# Restore components based on Components section
+	var parsed: Dictionary = MarkdownVault.parse_frontmatter(content)
+	if "## Components" in parsed.body:
+		var body: String = parsed.body
+
+		if "actor" in body:
+			var actor_comp: ActorComponent = ActorComponent.new()
+			char.add_component("actor", actor_comp)
+
+		if "thinker" in body:
+			var thinker_comp: ThinkerComponent = ThinkerComponent.new()
+			char.add_component("thinker", thinker_comp)
+
+		if "memory" in body:
+			var memory_comp: MemoryComponent = MemoryComponent.new()
+			char.add_component("memory", memory_comp)
+
+			# Load memories from vault
+			var loaded_memories: Array[Dictionary] = memory_comp.load_memories_from_vault(char.name)
+			for memory in loaded_memories:
+				memory_comp.add_memory(
+					memory.get("type", "unknown"),
+					memory.get("content", ""),
+					memory.get("metadata", {})
+				)
+
+	return char
+
+
+func _save_world_snapshot() -> void:
+	"""Create a world_state.md snapshot file.
+
+	Saves current state overview:
+	- Active locations with occupant counts
+	- Character locations table
+	- Recent events (TODO)
+
+	Notes:
+		Called by save_world_to_vault()
+	"""
+	var frontmatter: Dictionary = {
+		"snapshot_time": MarkdownVault.get_timestamp()
+	}
+
+	var content: String = MarkdownVault.create_frontmatter(frontmatter)
+	content += "# World State\n\n"
+
+	# Active Locations
+	content += "## Active Locations\n\n"
+	for room in get_all_rooms():
+		if room == nexus or room == root_room:
+			continue
+		var occupant_count: int = room.get_contents().size()
+		content += "- [[%s]] - %d occupant%s\n" % [
+			room.name,
+			occupant_count,
+			"s" if occupant_count != 1 else ""
+		]
+	content += "\n"
+
+	# Character Locations
+	content += "## Character Locations\n\n"
+	content += "| Character | Location |\n"
+	content += "|-----------|----------|\n"
+
+	for char in get_objects_with_component("actor"):
+		var location: WorldObject = char.get_location()
+		var location_name: String = location.name if location else "Nowhere"
+		content += "| [[%s]] | [[%s]] |\n" % [char.name, location_name]
+	content += "\n"
+
+	# Recent Events (placeholder)
+	content += "## Recent Events\n\n"
+	content += "*(Event logging to be implemented)*\n\n"
+
+	MarkdownVault.write_file(MarkdownVault.WORLD_PATH + "/world_state.md", content)
+
+
+func _restore_world_state() -> void:
+	"""Restore relationships from world_state.md.
+
+	Parses the world state snapshot to restore:
+	- Character locations
+	- Exit connections
+
+	Notes:
+		Called as third pass during load_world_from_vault()
+	"""
+	var state_path: String = MarkdownVault.WORLD_PATH + "/world_state.md"
+	var content: String = MarkdownVault.read_file(state_path)
+
+	if content.is_empty():
+		print("WorldKeeper: No world_state.md found, skipping relationship restoration")
+		return
+
+	# Resolve exit connections for all LocationComponents
+	_resolve_all_exits()
+
+	# Restore character locations from their markdown frontmatter
+	_restore_character_locations()
+
+
+func _resolve_all_exits() -> void:
+	"""Resolve all exit connections for LocationComponents.
+
+	After loading all locations, this method connects exits by parsing
+	the Exits section from each location's markdown file.
+
+	Notes:
+		Called by _restore_world_state() after all objects loaded
+		Uses simple pipe-delimited format: - [[Destination]] | alias1 | alias2
+	"""
+	# Build name -> object lookup for all rooms
+	var room_by_name: Dictionary = {}
+	for room in get_all_rooms():
+		room_by_name[room.name] = room
+
+	# Resolve exits for each location
+	for room in get_all_rooms():
+		if not room.has_component("location"):
+			continue
+
+		var loc_comp: LocationComponent = room.get_component("location") as LocationComponent
+
+		# Re-parse the room's markdown to get exit data
+		var filename: String = MarkdownVault.sanitize_filename(room.name) + ".md"
+		var path: String = MarkdownVault.LOCATIONS_PATH + "/" + filename
+		var content: String = MarkdownVault.read_file(path)
+
+		if content.is_empty():
+			continue
+
+		var parsed: Dictionary = MarkdownVault.parse_frontmatter(content)
+
+		# Parse exits from the Exits section
+		if loc_comp.has_method("parse_exits_from_markdown"):
+			loc_comp.parse_exits_from_markdown(parsed.body, room_by_name)
+
+
+func _restore_character_locations() -> void:
+	"""Restore character locations from their markdown frontmatter.
+
+	Reads the location metadata from each character's markdown file and
+	moves them to the appropriate room. Falls back to root_room if the
+	location cannot be found.
+
+	Notes:
+		Called by _restore_world_state() after exits are resolved
+		Parses location field in format: [[Room Name]]
+	"""
+	# Build room lookup dictionary for fast name-based lookup
+	var room_by_name: Dictionary = {}
+	for room in get_all_rooms():
+		room_by_name[room.name] = room
+
+	# Restore location for each character with actor component
+	for character in get_objects_with_component("actor"):
+		# Re-read character markdown to get location metadata
+		var filename: String = MarkdownVault.sanitize_filename(character.name) + ".md"
+		var path: String = MarkdownVault.OBJECTS_PATH + "/characters/" + filename
+		var content: String = MarkdownVault.read_file(path)
+
+		if content.is_empty():
+			push_warning("WorldKeeper: Cannot find character file for %s, defaulting to root_room" % character.name)
+			character.move_to(root_room)
+			continue
+
+		# Parse frontmatter to get location field
+		var parsed: Dictionary = MarkdownVault.parse_frontmatter(content)
+		var location_str: String = parsed.frontmatter.get("location", "")
+
+		# Parse [[Room Name]] format
+		if location_str.begins_with("[[") and location_str.ends_with("]]"):
+			var room_name: String = location_str.substr(2, location_str.length() - 4)
+
+			if room_by_name.has(room_name):
+				character.move_to(room_by_name[room_name])
+				print("WorldKeeper: Restored %s to %s" % [character.name, room_name])
+			else:
+				push_warning("WorldKeeper: Cannot find room '%s' for character %s, defaulting to root_room" % [room_name, character.name])
+				character.move_to(root_room)
+		else:
+			# No valid location specified, use root_room as fallback
+			print("WorldKeeper: No location specified for %s, defaulting to root_room" % character.name)
+			character.move_to(root_room)
+
+
+## Legacy JSON Persistence (deprecated, use vault methods)
 
 func save_world(filepath: String = "user://world_state.json") -> bool:
 	"""Save the world state to a JSON file.
