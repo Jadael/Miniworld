@@ -347,3 +347,57 @@ func generate_async_WRONG(prompt: String, callback: Callable) -> String:
 - Reasoning is stored but not displayed to other actors
 - Keeps command syntax simple while allowing rich internal state
 - Compatible with existing MOO-style command shortcuts (l, ', :)
+
+---
+
+## Development and Testing Workflow
+
+### Collaborative Testing in Godot Editor
+
+**Important Context**: Godot 4.4 does not have a headless mode for running projects without graphics. This means that development and testing of Miniworld is a collaborative process between Claude Code and the director (human partner).
+
+**Testing Workflow**:
+1. **Claude Code's Role**:
+   - Analyzes codebase and implements changes
+   - Adds debug logging when investigating issues
+   - Interprets log output and user reports
+   - Proposes fixes based on analysis
+
+2. **Director's Role**:
+   - Runs the project in Godot Editor
+   - Provides visual feedback and observations
+   - Copies log output from Godot's console
+   - Tests specific scenarios and interactions
+   - Reports unexpected behavior with context
+
+3. **Collaborative Debug Process**:
+   - Claude adds comprehensive logging to investigate issues
+   - Director runs project and provides log output
+   - Claude analyzes logs and proposes solutions
+   - Director tests fixes and confirms resolution
+   - Claude removes debug logging once issue is resolved
+
+**Key Principles**:
+- Claude cannot "run" or "test" the project directly
+- All runtime behavior must be observed and reported by the director
+- Debug logging is essential for diagnosing issues remotely
+- Clear communication about what to test and what to observe is critical
+- The director has visual and interactive access that Claude lacks
+
+**Example Debug Workflow**:
+```gdscript
+# Claude adds detailed logging
+print("[Component] _on_added called for: %s" % obj.name)
+print("[Component] Connecting to signal...")
+if signal.connect(handler) == OK:
+    print("[Component] Successfully connected!")
+else:
+    push_warning("[Component] Failed to connect!")
+
+# Director runs project and reports:
+# "I see the _on_added message but no 'Successfully connected' message"
+
+# Claude analyzes and proposes fix based on this information
+```
+
+This collaborative approach ensures that Claude Code can effectively debug and improve the project despite not having direct runtime access.

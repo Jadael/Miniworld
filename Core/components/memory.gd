@@ -1,14 +1,24 @@
 ## MemoryComponent: Gives a WorldObject memory capabilities
 ##
 ## Objects with this component can:
-## - Record observations and actions
+## - Automatically record own commands and results
+## - Automatically record observations of others
 ## - Retrieve recent or relevant memories
 ## - Store notes
 ##
-## This maps to the Python prototype's memory system, enabling both
-## AI agents and players to maintain persistent memory of events and experiences.
+## This component automatically connects to ActorComponent signals when both
+## are present on the same WorldObject, enabling seamless memory recording
+## for both AI agents and players.
 ##
-## Related: ActorComponent (source of observed events), ThinkerComponent (uses memories for AI decisions)
+## Memory Format:
+## - Command echoes: "> command args | reason\nresult"
+## - Observations: Formatted event text (no > prefix)
+##
+## Dependencies:
+## - ActorComponent: Auto-connects for memory recording (optional but recommended)
+## - MarkdownVault: For persistence to disk
+##
+## Related: ThinkerComponent (uses memories for AI decisions)
 
 extends ComponentBase
 class_name MemoryComponent
@@ -34,11 +44,28 @@ func _on_added(obj: WorldObject) -> void:
 	"""
 	super._on_added(obj)
 
+	print("[MemoryComponent] _on_added called for: %s" % obj.name)
+
 	# Connect to actor events for automatic memory recording
 	if obj.has_component("actor"):
-		var actor_comp = obj.get_component("actor")
-		if actor_comp.event_observed.connect(_on_event_observed) != OK:
-			push_warning("MemoryComponent: Failed to connect to actor events")
+		print("[MemoryComponent] ActorComponent found, connecting signals...")
+		var actor_comp: ActorComponent = obj.get_component("actor") as ActorComponent
+
+		# Record own commands and their results
+		var cmd_result = actor_comp.command_executed.connect(_on_command_executed)
+		if cmd_result != OK:
+			push_warning("MemoryComponent: Failed to connect to command_executed")
+		else:
+			print("[MemoryComponent] Successfully connected to command_executed signal")
+
+		# Record observations of others
+		var obs_result = actor_comp.event_observed.connect(_on_event_observed)
+		if obs_result != OK:
+			push_warning("MemoryComponent: Failed to connect to event_observed")
+		else:
+			print("[MemoryComponent] Successfully connected to event_observed signal")
+	else:
+		print("[MemoryComponent] No ActorComponent found on %s yet" % obj.name)
 
 
 func _on_removed(obj: WorldObject) -> void:
@@ -49,39 +76,66 @@ func _on_removed(obj: WorldObject) -> void:
 	"""
 	# Disconnect from actor component
 	if owner.has_component("actor"):
-		var actor_comp = owner.get_component("actor")
+		var actor_comp: ActorComponent = owner.get_component("actor") as ActorComponent
+
+		if actor_comp.command_executed.is_connected(_on_command_executed):
+			actor_comp.command_executed.disconnect(_on_command_executed)
+
 		if actor_comp.event_observed.is_connected(_on_event_observed):
 			actor_comp.event_observed.disconnect(_on_event_observed)
 
 	super._on_removed(obj)
 
 
-func add_memory(memory_type: String, content: String, metadata: Dictionary = {}) -> void:
+func add_memory(content: String, metadata: Dictionary = {}) -> void:
 	"""Record a new memory entry and save it to vault immediately.
 
 	Memories are automatically pruned when max_memories limit is exceeded.
 	Each memory is also saved as an individual markdown file in real-time.
 
 	Args:
-		memory_type: Type of memory ("observed", "action", "thought", etc.)
-		content: The memory content text
-		metadata: Optional additional data (event_type, location, etc.)
+		content: The memory content text (self-documenting format)
+		metadata: Optional contextual data for frontmatter:
+			- location: Current location name/ID
+			- occupants: Array of other actors present
+			- event_type: Type of event observed (speech, movement, etc.)
+			- Any other contextual information
 
 	Notes:
-		Saves to vault in real-time for immediate persistence
+		Saves to vault in real-time for immediate persistence.
+		Content format is self-documenting:
+		- Lines starting with ">" are command echoes
+		- Other lines are observations or results
 	"""
+	# Build metadata with current context if owner exists
+	var full_metadata: Dictionary = metadata.duplicate()
+	if owner:
+		var location: WorldObject = owner.get_location()
+		if location:
+			full_metadata["location"] = location.name
+			full_metadata["location_id"] = location.id
+
+			# Capture other actors present
+			if location.has_component("location"):
+				var occupants: Array[String] = []
+				for obj in location.get_contents():
+					if obj != owner and obj.has_component("actor"):
+						occupants.append(obj.name)
+				if occupants.size() > 0:
+					full_metadata["occupants"] = occupants
+
 	var memory = {
-		"type": memory_type,
+		"type": "memory",  # Simplified: all memories are just "memory"
 		"content": content,
 		"timestamp": Time.get_unix_time_from_system(),
-		"metadata": metadata
+		"metadata": full_metadata
 	}
 
 	memories.append(memory)
 
 	# Save to vault immediately if owner exists
 	if owner:
-		save_memory_to_vault(owner.name, content, memory_type)
+		save_memory_to_vault(owner.name, content, full_metadata)
 
 	# Trim old memories if we exceed the limit
 	if memories.size() > max_memories:
@@ -194,6 +248,40 @@ func remove_note(title: String) -> void:
 	notes.erase(title)
 
 
+func _on_command_executed(_cmd: String, result: Dictionary, reason: String) -> void:
+	"""Automatically create memories from executed commands.
+
+	Connected to ActorComponent.command_executed signal.
+
+	Args:
+		_cmd: The command verb (unused, we use last_command for full string)
+		result: Command result Dictionary
+		reason: Optional reasoning provided with command
+	"""
+	print("[MemoryComponent] _on_command_executed called for %s | success: %s | reason: '%s'" % [owner.name, result.success, reason])
+
+	if not result.success:
+		print("[MemoryComponent] Skipping failed command")
+		return  # Only record successful commands
+
+	# Get actor component to access full command string
+	if not owner.has_component("actor"):
+		print("[MemoryComponent] No ActorComponent found!")
+		return
+
+	var actor_comp: ActorComponent = owner.get_component("actor") as ActorComponent
+	var full_command: String = actor_comp.last_command
+
+	# Format as MOO transcript: "> command | reason\nresult"
+	var command_line: String = "> %s" % full_command
+	if reason != "":
+		command_line += " | %s" % reason
+	var transcript: String = "%s\n%s" % [command_line, result.message]
+
+	print("[MemoryComponent] Recording command memory: %s" % transcript.replace("\n", " // "))
+	add_memory(transcript)
+
+
 func _on_event_observed(event: Dictionary) -> void:
 	"""Automatically create memories from observed events.
 
@@ -202,13 +290,17 @@ func _on_event_observed(event: Dictionary) -> void:
 	Args:
 		event: Event Dictionary from EventWeaver
 	"""
+	print("[MemoryComponent] _on_event_observed called for %s | event type: %s" % [owner.name, event.get("type", "unknown")])
+
 	var memory_content = EventWeaver.format_event(event)
 
 	if memory_content != "":
-		add_memory("observed", memory_content, {
-			"event_type": event.get("type", "unknown"),
-			"location": event.get("location")
+		print("[MemoryComponent] Recording observation memory: %s" % memory_content)
+		add_memory(memory_content, {
+			"event_type": event.get("type", "unknown")
 		})
+	else:
+		print("[MemoryComponent] EventWeaver returned empty content, skipping")
 
 
 func format_memories_as_text(count: int = 10) -> String:
@@ -252,28 +344,38 @@ func format_notes_as_text() -> String:
 
 ## Markdown Vault Persistence
 
-func save_memory_to_vault(owner_name: String, memory_text: String, memory_type: String) -> void:
+func save_memory_to_vault(owner_name: String, memory_text: String, metadata: Dictionary) -> void:
 	"""Save a memory as a markdown file in the agent's vault.
 
 	Args:
 		owner_name: Name of the agent (for directory path)
-		memory_text: The memory content
-		memory_type: "observed", "action", "response", or "thought"
+		memory_text: The memory content (self-documenting format)
+		metadata: Dictionary of contextual information for frontmatter
 
 	Notes:
-		Creates individual timestamped markdown files for each memory
+		Creates individual timestamped markdown files for each memory.
+		Frontmatter includes location, occupants, and other contextual data.
 	"""
 	var timestamp: String = MarkdownVault.get_filename_timestamp()
-	var filename: String = "%s-%s.md" % [timestamp, memory_type]
+	var filename: String = "%s-memory.md" % timestamp
 	var agent_path: String = MarkdownVault.AGENTS_PATH + "/" + MarkdownVault.sanitize_filename(owner_name)
 	var mem_path: String = agent_path + "/memories/" + filename
 
-	# Create frontmatter
+	# Create frontmatter with contextual metadata
 	var frontmatter: Dictionary = {
 		"timestamp": MarkdownVault.get_timestamp(),
-		"type": memory_type,
-		"importance": 5  # Default importance (could be calculated later)
+		"type": "memory"
 	}
+
+	# Add contextual metadata from the memory
+	if metadata.has("location"):
+		frontmatter["location"] = metadata.location
+	if metadata.has("location_id"):
+		frontmatter["location_id"] = metadata.location_id
+	if metadata.has("occupants"):
+		frontmatter["occupants"] = metadata.occupants
+	if metadata.has("event_type"):
+		frontmatter["event_type"] = metadata.event_type
 
 	var content: String = MarkdownVault.create_frontmatter(frontmatter)
 	content += "# Memory\n\n"
@@ -332,10 +434,10 @@ func save_all_memories_to_vault(owner_name: String) -> void:
 		Used during world save operations
 	"""
 	for memory in memories:
-		var memory_type: String = memory.get("type", "unknown")
 		var memory_content: String = memory.get("content", "")
+		var memory_metadata: Dictionary = memory.get("metadata", {})
 
-		save_memory_to_vault(owner_name, memory_content, memory_type)
+		save_memory_to_vault(owner_name, memory_content, memory_metadata)
 
 
 func _parse_iso_timestamp(iso_string: String) -> int:

@@ -67,25 +67,9 @@ static func create(name: String, profile: String, starting_location: WorldObject
 	if location:
 		agent.move_to(location)
 
-	# Wire up memory recording for actions
-	# Store command and result in MOO transcript format: "> command | reason" followed by result
-	actor_comp.command_executed.connect(func(cmd: String, result: Dictionary, reason: String):
-		if result.success:
-			# Format as MOO transcript: show command with "> " prefix
-			# Include reason if present (after |), then show result
-			var command_line: String = "> %s" % cmd
-			if reason != "":
-				command_line += " | %s" % reason
-			var transcript: String = "%s\n%s" % [command_line, result.message]
-			memory_comp.add_memory("action", transcript)
-	)
-
-	# Wire up memory recording for observations
-	actor_comp.event_observed.connect(func(event: Dictionary):
-		var memory_content = EventWeaver.format_event(event)
-		if memory_content != "":
-			memory_comp.add_memory("observed", memory_content)
-	)
+	# Note: Memory recording is now handled automatically by MemoryComponent
+	# when it detects an ActorComponent on the same WorldObject. No manual
+	# signal connections needed!
 
 	print("AI Agent created: %s (%s) at %s" % [name, agent.id, location.name if location else "void"])
 

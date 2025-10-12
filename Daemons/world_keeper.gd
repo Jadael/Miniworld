@@ -510,7 +510,6 @@ func _load_character_from_markdown(content: String) -> WorldObject:
 			var loaded_memories: Array[Dictionary] = memory_comp.load_memories_from_vault(char.name)
 			for memory in loaded_memories:
 				memory_comp.add_memory(
-					memory.get("type", "unknown"),
 					memory.get("content", ""),
 					memory.get("metadata", {})
 				)

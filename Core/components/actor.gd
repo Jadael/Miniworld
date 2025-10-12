@@ -35,7 +35,7 @@ signal command_executed(command: String, result: Dictionary, reason: String)
 signal event_observed(event: Dictionary)
 
 
-## The last command this actor executed
+## The last command this actor executed (full command line with args)
 var last_command: String = ""
 
 ## The result Dictionary from the last command execution
@@ -139,8 +139,13 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 		_:
 			result = {"success": false, "message": "Unknown command: %s" % command}
 
+	# Reconstruct full command line from verb and args for caching
+	var full_command: String = command
+	if args.size() > 0:
+		full_command += " " + " ".join(args)
+
 	# Cache command, result, and reason for inspection
-	last_command = command
+	last_command = full_command
 	last_result = result
 	last_reason = reason
 	command_executed.emit(command, result, reason)
@@ -384,7 +389,7 @@ func _cmd_think(args: Array) -> Dictionary:
 	# Record to memory if available
 	if owner.has_component("memory"):
 		var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
-		memory_comp.add_memory("thought", thought)
+		memory_comp.add_memory(thought)
 
 	return {
 		"success": true,
@@ -479,9 +484,8 @@ func _on_dream_complete(insight: String) -> void:
 
 	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
 
-	# Store dream insight as a note-like memory
-	var timestamp: String = Time.get_datetime_string_from_unix_time(Time.get_unix_time_from_system())
-	memory_comp.add_memory("dream", "Dream insight: %s" % insight)
+	# Store dream insight as a memory
+	memory_comp.add_memory("Dream insight: %s" % insight)
 
 	# If this is an AI agent, the insight will appear in their next memory review
 	# If this is the player, emit a command result
