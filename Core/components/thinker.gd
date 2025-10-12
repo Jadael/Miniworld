@@ -27,7 +27,7 @@ class_name ThinkerComponent
 var profile: String = "A thoughtful entity."
 
 ## How often the agent thinks and makes decisions, in seconds
-var think_interval: float = 5.0
+var think_interval: float = 6.0
 
 ## Internal countdown timer for next think cycle
 var think_timer: float = 0.0
@@ -171,7 +171,7 @@ func _build_context() -> Dictionary:
 	# Retrieve recent memories if available
 	if owner.has_component("memory"):
 		var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
-		context.recent_memories = memory_comp.get_recent_memories(5)
+		context.recent_memories = memory_comp.get_recent_memories(64)
 
 	return context
 

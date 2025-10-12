@@ -88,7 +88,7 @@ func add_memory(memory_type: String, content: String, metadata: Dictionary = {})
 		memories = memories.slice(memories.size() - max_memories, memories.size())
 
 
-func get_recent_memories(count: int = 10) -> Array[Dictionary]:
+func get_recent_memories(count: int = 64) -> Array[Dictionary]:
 	"""Get the most recent N memories.
 
 	Args:
