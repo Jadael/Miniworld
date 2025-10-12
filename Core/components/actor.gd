@@ -1,7 +1,7 @@
 ## Actor Component: Makes a WorldObject able to perform actions
 ##
 ## Objects with this component can:
-## - Execute commands (look, go, say, emote, etc.)
+## - Execute commands (look, go, say, emote, etc.) with optional reasoning
 ## - Observe events in their location
 ## - Interact with other objects
 ##
@@ -15,15 +15,21 @@
 ##
 ## Notes:
 ## - All commands return a Dictionary with at least "success" and "message" keys
+## - Commands can include optional reasoning via the reason parameter
 ## - Commands prefixed with @ are builder/admin commands
 ## - Movement commands automatically trigger look at destination
+## - command_executed signal includes reason as third parameter
 
 extends ComponentBase
 class_name ActorComponent
 
 
 ## Emitted when this actor executes a command
-signal command_executed(command: String, result: Dictionary)
+## Parameters:
+## - command (String): The executed command string
+## - result (Dictionary): Command result with success, message, etc.
+## - reason (String): Optional reasoning/commentary provided with command
+signal command_executed(command: String, result: Dictionary, reason: String)
 
 ## Emitted when this actor observes an event in their location
 signal event_observed(event: Dictionary)
@@ -34,6 +40,9 @@ var last_command: String = ""
 
 ## The result Dictionary from the last command execution
 var last_result: Dictionary = {}
+
+## The reason/commentary provided with the last command (if any)
+var last_reason: String = ""
 
 ## Cached reference to the actor's current WorldObject location
 ## Updated via _update_location() before each command execution
@@ -73,7 +82,7 @@ func _update_location() -> void:
 	current_location = owner.get_location()
 
 
-func execute_command(command: String, args: Array = []) -> Dictionary:
+func execute_command(command: String, args: Array = [], reason: String = "") -> Dictionary:
 	"""Execute a command as this actor and return the result.
 
 	Matches the command string against known commands and dispatches
@@ -83,6 +92,7 @@ func execute_command(command: String, args: Array = []) -> Dictionary:
 	Args:
 		command: The command verb to execute (case-insensitive)
 		args: Array of string arguments for the command
+		reason: Optional reasoning/commentary for this command (appears in echoes)
 
 	Returns:
 		Dictionary containing at least:
@@ -129,10 +139,11 @@ func execute_command(command: String, args: Array = []) -> Dictionary:
 		_:
 			result = {"success": false, "message": "Unknown command: %s" % command}
 
-	# Cache command and result for inspection
+	# Cache command, result, and reason for inspection
 	last_command = command
 	last_result = result
-	command_executed.emit(command, result)
+	last_reason = reason
+	command_executed.emit(command, result, reason)
 
 	return result
 
@@ -481,7 +492,7 @@ func _on_dream_complete(insight: String) -> void:
 		"success": true,
 		"message": "Dream Insight:\n%s" % insight
 	}
-	command_executed.emit("dream", result)
+	command_executed.emit("dream", result, "")
 
 
 func observe_event(event: Dictionary) -> void:

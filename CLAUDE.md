@@ -290,3 +290,60 @@ func generate_async_WRONG(prompt: String, callback: Callable) -> String:
 - General system needs to observe (signal)
 - AND specific caller needs result (callback)
 - Example: Shoggoth emits `task_completed` signal AND invokes registered callback
+
+### MOO-Style Command Syntax with Reasoning
+
+**Pattern**: Both players and AI agents use unified MOO-style command syntax with optional reasoning.
+
+**Syntax**: `command args | reason`
+- Everything before `|` is the command and its arguments
+- Everything after `|` is optional reasoning/commentary
+- The `|` separator itself is optional
+- Reasoning is private (recorded in memory, not broadcast to others)
+
+**Example Commands**:
+```gdscript
+# Simple command without reasoning
+"look"
+
+# Command with args, no reasoning
+"go garden"
+
+# Command with reasoning (for introspection and memory)
+"say Hello there! | Trying to make a connection"
+"go library | Want to find a quiet place to think"
+"examine Moss | Curious about this contemplative being"
+```
+
+**Implementation Details**:
+
+1. **Player Input** (game_controller_ui.gd:264-319):
+   - Parses `|` separator to extract reason
+   - Passes reason as third parameter to `execute_command()`
+
+2. **AI Agent Output** (thinker.gd:272-325):
+   - LLM generates single-line response: `command args | reason`
+   - Parser splits on `|` to extract command and reason
+   - Passes reason to `execute_command()`
+
+3. **Command Execution** (actor.gd:83-146):
+   - `execute_command(command, args, reason)` accepts optional reason
+   - Emits `command_executed(command, result, reason)` signal
+   - Caches `last_reason` for inspection
+
+4. **Memory Recording** (ai_agent.gd:68-86):
+   - Format: `"> command | reason\nresult"`
+   - Reason included in transcript if present
+   - Creates readable memory log for AI context
+
+**Benefits**:
+- Unified syntax across player and AI interactions
+- AI agents can record decision-making rationale
+- Players can optionally add context to their commands
+- Memory transcripts show both actions and reasoning
+- Supports introspection and learning from past decisions
+
+**Notes**:
+- Reasoning is stored but not displayed to other actors
+- Keeps command syntax simple while allowing rich internal state
+- Compatible with existing MOO-style command shortcuts (l, ', :)

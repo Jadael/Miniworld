@@ -3,7 +3,7 @@
 ## Uses Shoggoth (LLM interface) to:
 ## - Observe the world through Memory component
 ## - Make decisions based on profile and memories
-## - Execute commands through Actor component
+## - Execute commands through Actor component using MOO-style syntax
 ##
 ## Dependencies:
 ## - ComponentBase: Base class for all components
@@ -15,6 +15,8 @@
 ## - Think interval can be adjusted per-agent for different behaviors
 ## - Falls back to simple behavior if LLM is unavailable
 ## - Processes autonomously via process() method, not frame-based
+## - Uses MOO-style command syntax: "command args | reason" where | is optional
+## - Reasoning after | is private (stored in memory, not visible to others)
 
 extends ComponentBase
 class_name ThinkerComponent
@@ -246,27 +248,35 @@ func _construct_prompt(context: Dictionary) -> String:
 
 	# Available command reference
 	prompt += "## Available Commands\n\n"
-	prompt += "- LOOK: Observe your surroundings (only useful if something changed)\n"
-	prompt += "- GO exit: Move to another location\n"
-	prompt += "- SAY message: Speak to others\n"
-	prompt += "- EMOTE action: Perform an action\n"
-	prompt += "- EXAMINE target: Look at something/someone closely\n"
-	prompt += "- DREAM: Review jumbled memories for new insights (when feeling stuck or curious)\n\n"
+	prompt += "- look: Observe your surroundings (only useful if something changed)\n"
+	prompt += "- go <exit>: Move to another location\n"
+	prompt += "- say <message>: Speak to others\n"
+	prompt += "- emote <action>: Perform an action\n"
+	prompt += "- examine <target>: Look at something/someone closely\n"
+	prompt += "- dream: Review jumbled memories for new insights (when feeling stuck or curious)\n\n"
 
 	# Response format instructions
-	prompt += "What do you want to do? Include a REASON to record your internal "
-	prompt += "reasoning (this is private and not visible to others) for your own future freference."
-	prompt += "\nRespond with:\n"
-	prompt += "COMMAND: <command>\n"
-	prompt += "REASON: <optional - detailed explanation of why you're doing this and how it advances your goals>\n"
+	prompt += "## Response Format\n\n"
+	prompt += "Respond with a single line using MOO-style syntax:\n\n"
+	prompt += "command args | reason\n\n"
+	prompt += "The | separator is optional. Everything after | is your private reasoning "
+	prompt += "(not visible to others, but recorded in your memory for future reference).\n\n"
+	prompt += "Examples:\n"
+	prompt += "- look\n"
+	prompt += "- go garden | I want to explore and maybe meet someone new\n"
+	prompt += "- say Hello! How are you today?\n"
+	prompt += "- emote waves enthusiastically | They look friendly, making a connection\n"
+	prompt += "- examine Moss | Curious about this contemplative being\n\n"
+	prompt += "What do you want to do?\n"
 
 	return prompt
 
 func _on_thought_complete(response: String) -> void:
 	"""Handle LLM response and execute the decided action.
 
-	Parses the LLM response for COMMAND: and REASON: lines, then
-	executes the command through the ActorComponent.
+	Parses the LLM response for MOO-style command syntax: "command args | reason"
+	The | separator is optional. Everything before | is the command, everything
+	after is the reasoning.
 
 	Args:
 		response: The LLM's text response containing decision
@@ -277,16 +287,28 @@ func _on_thought_complete(response: String) -> void:
 	"""
 	is_thinking = false
 
-	# Parse COMMAND: and REASON: lines from response
+	# Parse MOO-style command: "command args | reason"
+	var command_line: String = response.strip_edges()
+
+	# Extract first non-empty line from response (in case LLM adds extra text)
+	var lines: PackedStringArray = command_line.split("\n")
+	for line in lines:
+		var trimmed: String = line.strip_edges()
+		if trimmed != "" and not trimmed.begins_with("#"):
+			command_line = trimmed
+			break
+
+	# Split on | to separate command from reason
 	var command: String = ""
 	var reason: String = ""
 
-	var lines: PackedStringArray = response.split("\n")
-	for line in lines:
-		if line.begins_with("COMMAND:"):
-			command = line.replace("COMMAND:", "").strip_edges()
-		elif line.begins_with("REASON:"):
-			reason = line.replace("REASON:", "").strip_edges()
+	if "|" in command_line:
+		var parts: PackedStringArray = command_line.split("|", true, 1)
+		command = parts[0].strip_edges()
+		if parts.size() > 1:
+			reason = parts[1].strip_edges()
+	else:
+		command = command_line
 
 	if command != "":
 		# Execute the decided command through ActorComponent
@@ -300,7 +322,7 @@ func _on_thought_complete(response: String) -> void:
 			if parts.size() > 1:
 				args = parts[1].split(" ", false)
 
-			actor_comp.execute_command(cmd, args)
+			actor_comp.execute_command(cmd, args, reason)
 
 		thought_completed.emit(command, reason)
 

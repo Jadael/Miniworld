@@ -454,7 +454,7 @@ func _cmd_notes() -> void:
 ## These functions handle signals emitted by the player's ActorComponent.
 
 
-func _on_command_executed(_command: String, result: Dictionary) -> void:
+func _on_command_executed(_command: String, result: Dictionary, _reason: String) -> void:
 	"""Handle command execution results from the player's ActorComponent.
 
 	Called when the player's ActorComponent finishes executing a command.
@@ -466,9 +466,10 @@ func _on_command_executed(_command: String, result: Dictionary) -> void:
 		result: Dictionary containing:
 			- success: Boolean indicating if command succeeded
 			- message: String containing the result message
+		_reason: Optional reasoning provided with command (intentionally unused)
 
 	Notes:
-		The underscore prefix on _command indicates it's intentionally unused.
+		The underscore prefix on parameters indicates they're intentionally unused.
 		Success messages are passed through _format_output for styling.
 	"""
 	if result.success:

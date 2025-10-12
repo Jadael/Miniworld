@@ -8,6 +8,7 @@
 ## - Connects component signals for integrated memory and thinking
 ## - Provides predefined agent profiles (Eliza, Moss)
 ## - Handles initial placement in the world
+## - Automatically records commands with reasons in MOO transcript format
 ##
 ## Dependencies:
 ## - WorldKeeper: For object creation and world management
@@ -19,6 +20,7 @@
 ## Notes:
 ## - All methods are static; this is a factory class, not instantiated
 ## - Agents automatically record actions, observations, and thoughts to memory
+## - Memory format: "> command | reason\nresult" (MOO transcript style)
 ## - Think intervals control how frequently the AI decides on actions
 
 class_name AIAgent
@@ -66,12 +68,15 @@ static func create(name: String, profile: String, starting_location: WorldObject
 		agent.move_to(location)
 
 	# Wire up memory recording for actions
-	# Store command and result in MOO transcript format: "> command" followed by result
-	actor_comp.command_executed.connect(func(cmd: String, result: Dictionary):
+	# Store command and result in MOO transcript format: "> command | reason" followed by result
+	actor_comp.command_executed.connect(func(cmd: String, result: Dictionary, reason: String):
 		if result.success:
-			# Format as MOO transcript: show command with "> " prefix, then result
-			# This makes it clear what the agent typed and what happened
-			var transcript: String = "> %s\n%s" % [cmd, result.message]
+			# Format as MOO transcript: show command with "> " prefix
+			# Include reason if present (after |), then show result
+			var command_line: String = "> %s" % cmd
+			if reason != "":
+				command_line += " | %s" % reason
+			var transcript: String = "%s\n%s" % [command_line, result.message]
 			memory_comp.add_memory("action", transcript)
 	)
 
@@ -80,13 +85,6 @@ static func create(name: String, profile: String, starting_location: WorldObject
 		var memory_content = EventWeaver.format_event(event)
 		if memory_content != "":
 			memory_comp.add_memory("observed", memory_content)
-	)
-
-	# Wire up memory recording for decision-making rationale
-	# Store just the reasoning, since the action itself is already recorded
-	thinker_comp.thought_completed.connect(func(command: String, reason: String):
-		if reason != "":
-			memory_comp.add_memory("thought", "Reasoning: %s" % reason)
 	)
 
 	print("AI Agent created: %s (%s) at %s" % [name, agent.id, location.name if location else "void"])
