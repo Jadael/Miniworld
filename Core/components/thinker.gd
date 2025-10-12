@@ -95,11 +95,13 @@ func process(delta: float) -> void:
 
 
 func _think() -> void:
-	"""Generate a thought and action using LLM.
+	"""Queue a thought task with Shoggoth.
 
-	Builds context from current situation, sends to Shoggoth for
-	decision-making, and waits for async response. Falls back to
-	simple behavior if LLM is unavailable.
+	Instead of building the prompt immediately, we pass a callable that will
+	build the prompt just-in-time when Shoggoth is ready to execute it.
+	This ensures the agent has the most up-to-date memories and observations.
+
+	Falls back to simple behavior if LLM is unavailable.
 	"""
 	is_thinking = true
 
@@ -110,14 +112,16 @@ func _think() -> void:
 		is_thinking = false
 		return
 
-	# Build context and construct prompt
-	var context: Dictionary = _build_context()
-	var prompt: String = _construct_prompt(context)
-
 	# Request LLM decision asynchronously
 	if Shoggoth and Shoggoth.ollama_client:
-		print("[Thinker] %s sending LLM request..." % owner.name)
-		Shoggoth.generate_async(prompt, profile, Callable(self, "_on_thought_complete"))
+		print("[Thinker] %s queuing LLM request..." % owner.name)
+
+		# Pass a callable that builds the prompt fresh when Shoggoth is ready to execute
+		var prompt_generator: Callable = func() -> String:
+			var fresh_context: Dictionary = _build_context()
+			return _construct_prompt(fresh_context)
+
+		Shoggoth.generate_async(prompt_generator, profile, Callable(self, "_on_thought_complete"))
 	else:
 		# Fixed FIXME: Split ternary into separate conditional to avoid type incompatibility
 		var client_status: String = "N/A"

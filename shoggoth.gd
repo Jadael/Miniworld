@@ -472,6 +472,9 @@ func _execute_current_task(options: Dictionary) -> void:
 		Routes to either ollama_client.generate() or ollama_client.chat() depending
 		on the task mode. Validates that required keys (prompt/messages) are present
 		before execution.
+
+		For chat_async mode, resolves the prompt generator just-in-time to ensure
+		maximum freshness of context and memories.
 	"""
 	# Safety check: ensure ollama_client is initialized
 	if ollama_client == null:
@@ -484,7 +487,36 @@ func _execute_current_task(options: Dictionary) -> void:
 
 	var mode = current_task.get("mode", "generate")
 
-	if mode == "chat":
+	if mode == "chat_async":
+		# Just-in-time prompt generation for async tasks
+		if not current_task.has("prompt_generator"):
+			_handle_task_error("Async chat task missing 'prompt_generator' key")
+			return
+
+		var prompt_generator = current_task["prompt_generator"]
+		var prompt_text: String = ""
+
+		# Resolve prompt: either invoke Callable or use String directly
+		if prompt_generator is Callable:
+			print("[Shoggoth] Invoking prompt generator just-in-time for task: %s" % current_task.get("id", "unknown"))
+			prompt_text = prompt_generator.call()
+		elif prompt_generator is String:
+			prompt_text = prompt_generator
+		else:
+			_handle_task_error("Async chat task prompt_generator must be String or Callable")
+			return
+
+		var system_prompt: String = current_task.get("system_prompt", "")
+
+		# Build messages with fresh prompt
+		var messages = [
+			{"role": "system", "content": system_prompt},
+			{"role": "user", "content": prompt_text}
+		]
+
+		ollama_client.chat(messages, options)
+
+	elif mode == "chat":
 		if not current_task.has("messages"):
 			_handle_task_error("Chat task missing 'messages' key")
 			return
@@ -686,11 +718,13 @@ func is_busy() -> bool:
 	"""
 	return is_processing_task or not task_queue.is_empty()
 
-func generate_async(prompt: String, system_prompt: String, callback: Callable) -> String:
+func generate_async(prompt: Variant, system_prompt: String, callback: Callable) -> String:
 	"""Submit an async generation task with a callback function.
 
 	Args:
-		prompt: The user prompt to send to the LLM
+		prompt: Either a String (prompt text) or a Callable that returns a String.
+		        If a Callable is provided, it will be invoked just-in-time when
+		        Shoggoth is ready to execute the task, ensuring maximum freshness.
 		system_prompt: System instruction defining personality or behavior
 		callback: A Callable that will be invoked with the result string
 
@@ -701,22 +735,33 @@ func generate_async(prompt: String, system_prompt: String, callback: Callable) -
 		Uses chat mode internally to support system prompts. The callback is
 		stored in pending_callbacks and invoked by Shoggoth when the task completes.
 		If LLM is unavailable, the callback is immediately called with an empty string.
+
+		Passing a Callable for prompt is useful for AI agents that need the most
+		up-to-date memories and observations when their task finally executes.
 	"""
 	if ollama_client == null:
 		# No LLM available, call callback with empty string
 		callback.call("")
 		return ""
 
-	# Use chat mode to include system prompt
-	var messages = [
-		{"role": "system", "content": system_prompt},
-		{"role": "user", "content": prompt}
-	]
-
-	var task_id = submit_chat(messages)
+	# Store prompt as-is (String or Callable) - it will be resolved just-in-time
+	var task_id = str(Time.get_unix_time_from_system()) + "_" + str(randi())
+	var task = {
+		"id": task_id,
+		"prompt_generator": prompt,  # Can be String or Callable
+		"system_prompt": system_prompt,
+		"mode": "chat_async",  # Special mode for just-in-time prompt generation
+		"parameters": {}
+	}
+	task_queue.append(task)
+	print("[Shoggoth] Async chat task queued: %s (queue length: %d, is_processing: %s, is_initializing: %s)" % [task_id, task_queue.size(), is_processing_task, is_initializing])
 
 	# Register callback - Shoggoth will invoke it when task completes
 	pending_callbacks[task_id] = callback
+
+	if not is_processing_task:
+		print("[Shoggoth] Attempting to process task immediately...")
+		_process_next_task()
 
 	return task_id
 

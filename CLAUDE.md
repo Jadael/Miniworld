@@ -291,6 +291,75 @@ func generate_async_WRONG(prompt: String, callback: Callable) -> String:
 - AND specific caller needs result (callback)
 - Example: Shoggoth emits `task_completed` signal AND invokes registered callback
 
+### Just-in-Time Prompt Generation (Shoggoth Pattern)
+
+**Problem**: When AI agents queue prompts for LLM inference, the prompt is built immediately but may not execute for several seconds (or longer if other tasks are queued). During this wait time, the agent may observe new events, execute commands, or receive new memories that should be included in the prompt.
+
+**Solution**: Pass a Callable (prompt generator) instead of a String to `Shoggoth.generate_async()`. Shoggoth stores the Callable in the task queue and invokes it just-in-time when the task is ready to execute, ensuring maximum freshness.
+
+**Implementation** (thinker.gd:97-134):
+```gdscript
+func _think() -> void:
+	# Don't build prompt here!
+	if Shoggoth and Shoggoth.ollama_client:
+		# Pass a callable that builds the prompt fresh when Shoggoth is ready
+		var prompt_generator: Callable = func() -> String:
+			var fresh_context: Dictionary = _build_context()
+			return _construct_prompt(fresh_context)
+
+		Shoggoth.generate_async(prompt_generator, profile, Callable(self, "_on_thought_complete"))
+```
+
+**Shoggoth Support** (shoggoth.gd:689-734):
+```gdscript
+func generate_async(prompt: Variant, system_prompt: String, callback: Callable) -> String:
+	"""Submit an async generation task with a callback function.
+
+	Args:
+		prompt: Either a String (prompt text) or a Callable that returns a String.
+		        If a Callable is provided, it will be invoked just-in-time when
+		        Shoggoth is ready to execute the task, ensuring maximum freshness.
+		...
+	"""
+	var task = {
+		"prompt_generator": prompt,  # Can be String or Callable
+		"mode": "chat_async"
+	}
+	task_queue.append(task)
+```
+
+**Just-in-Time Resolution** (shoggoth.gd:465-530):
+```gdscript
+func _execute_current_task(options: Dictionary) -> void:
+	if mode == "chat_async":
+		var prompt_generator = current_task["prompt_generator"]
+		var prompt_text: String = ""
+
+		# Resolve prompt: either invoke Callable or use String directly
+		if prompt_generator is Callable:
+			print("[Shoggoth] Invoking prompt generator just-in-time...")
+			prompt_text = prompt_generator.call()
+		elif prompt_generator is String:
+			prompt_text = prompt_generator
+```
+
+**Benefits**:
+- Agents always have most recent memories and observations
+- Context includes events that occurred while waiting in queue
+- No stale prompts with outdated information
+- Minimal code changes required from callers
+- Backwards compatible (String prompts still work)
+
+**When to Use**:
+- AI agents that need fresh context for decision-making
+- Any LLM task where the world state might change during queuing
+- Tasks with long queue wait times
+
+**When NOT to Use**:
+- One-shot prompts that don't depend on changing state
+- Prompts that are expensive to generate (cache them instead)
+- Simple text generation that doesn't need world context
+
 ### MOO-Style Command Syntax with Reasoning
 
 **Pattern**: Both players and AI agents use unified MOO-style command syntax with optional reasoning.

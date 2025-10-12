@@ -44,28 +44,17 @@ func _on_added(obj: WorldObject) -> void:
 	"""
 	super._on_added(obj)
 
-	print("[MemoryComponent] _on_added called for: %s" % obj.name)
-
 	# Connect to actor events for automatic memory recording
 	if obj.has_component("actor"):
-		print("[MemoryComponent] ActorComponent found, connecting signals...")
 		var actor_comp: ActorComponent = obj.get_component("actor") as ActorComponent
 
 		# Record own commands and their results
-		var cmd_result = actor_comp.command_executed.connect(_on_command_executed)
-		if cmd_result != OK:
+		if actor_comp.command_executed.connect(_on_command_executed) != OK:
 			push_warning("MemoryComponent: Failed to connect to command_executed")
-		else:
-			print("[MemoryComponent] Successfully connected to command_executed signal")
 
 		# Record observations of others
-		var obs_result = actor_comp.event_observed.connect(_on_event_observed)
-		if obs_result != OK:
+		if actor_comp.event_observed.connect(_on_event_observed) != OK:
 			push_warning("MemoryComponent: Failed to connect to event_observed")
-		else:
-			print("[MemoryComponent] Successfully connected to event_observed signal")
-	else:
-		print("[MemoryComponent] No ActorComponent found on %s yet" % obj.name)
 
 
 func _on_removed(obj: WorldObject) -> void:
@@ -258,15 +247,11 @@ func _on_command_executed(_cmd: String, result: Dictionary, reason: String) -> v
 		result: Command result Dictionary
 		reason: Optional reasoning provided with command
 	"""
-	print("[MemoryComponent] _on_command_executed called for %s | success: %s | reason: '%s'" % [owner.name, result.success, reason])
-
 	if not result.success:
-		print("[MemoryComponent] Skipping failed command")
 		return  # Only record successful commands
 
 	# Get actor component to access full command string
 	if not owner.has_component("actor"):
-		print("[MemoryComponent] No ActorComponent found!")
 		return
 
 	var actor_comp: ActorComponent = owner.get_component("actor") as ActorComponent
@@ -278,7 +263,6 @@ func _on_command_executed(_cmd: String, result: Dictionary, reason: String) -> v
 		command_line += " | %s" % reason
 	var transcript: String = "%s\n%s" % [command_line, result.message]
 
-	print("[MemoryComponent] Recording command memory: %s" % transcript.replace("\n", " // "))
 	add_memory(transcript)
 
 
@@ -290,17 +274,12 @@ func _on_event_observed(event: Dictionary) -> void:
 	Args:
 		event: Event Dictionary from EventWeaver
 	"""
-	print("[MemoryComponent] _on_event_observed called for %s | event type: %s" % [owner.name, event.get("type", "unknown")])
-
 	var memory_content = EventWeaver.format_event(event)
 
 	if memory_content != "":
-		print("[MemoryComponent] Recording observation memory: %s" % memory_content)
 		add_memory(memory_content, {
 			"event_type": event.get("type", "unknown")
 		})
-	else:
-		print("[MemoryComponent] EventWeaver returned empty content, skipping")
 
 
 func format_memories_as_text(count: int = 10) -> String:
