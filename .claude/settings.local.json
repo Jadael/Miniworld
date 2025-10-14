@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Read(//c/Users/hillh/AppData/Roaming/Godot/app_userdata/Miniworld/**)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

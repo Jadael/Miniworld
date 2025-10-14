@@ -500,6 +500,8 @@ func _load_character_from_markdown(content: String) -> WorldObject:
 
 		if "thinker" in body:
 			var thinker_comp: ThinkerComponent = ThinkerComponent.new()
+			# Set the AI profile from the character's description
+			thinker_comp.set_profile(char.description)
 			char.add_component("thinker", thinker_comp)
 
 		if "memory" in body:
