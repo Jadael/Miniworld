@@ -93,8 +93,6 @@ func _ready() -> void:
 	add_event("  @exit <name> to <room> - Connect rooms")
 	add_event("  @teleport <room> - Jump to any room")
 	add_event("")
-	add_event("[color=gray]Press ~ for dev console[/color]")
-	add_event("")
 
 func _input(event: InputEvent) -> void:
 	"""Handle keyboard input for command history navigation.
@@ -138,9 +136,11 @@ func _on_command_submitted(text: String) -> void:
 	# Emit signal for game controller to process
 	command_submitted.emit(text)
 
-	# Clear input and maintain focus for next command
+	# Clear input
 	command_input.clear()
-	command_input.call_deferred("grab_focus")
+
+	# Re-grab focus immediately (LineEdit can handle this during text_submitted)
+	command_input.grab_focus()
 
 
 func _on_send_pressed() -> void:

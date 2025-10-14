@@ -319,7 +319,7 @@ func _on_command_submitted(text: String) -> void:
 	# Execute command through actor component with reason
 	actor_comp.execute_command(command, args, reason)
 
-func _on_command_executed(_command: String, result: Dictionary, reason: String) -> void:
+func _on_command_executed(_command: String, result: Dictionary, _reason: String) -> void:
 	"""Handle player command execution results and update UI.
 
 	Displays success messages or errors, filters emoji icons for
@@ -328,11 +328,11 @@ func _on_command_executed(_command: String, result: Dictionary, reason: String) 
 	Args:
 		_command: The command that was executed (unused)
 		result: Dictionary containing success, message, and optional location data
-		reason: Optional reasoning/commentary provided with the command
+		_reason: Optional reasoning/commentary provided with the command (unused)
 
 	Notes:
 		Removes emoji icons (📍👥🔧) from messages for cleaner UI display
-		If reason is provided, it's displayed in the command echo
+		The reason parameter is captured but not currently displayed in the UI
 	"""
 	if result.success:
 		# Display success message

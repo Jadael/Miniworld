@@ -170,6 +170,8 @@ func format_event(event: Dictionary) -> String:
 		- "emote": Returns event["text"]
 		- "action": Returns event["message"]
 		- "movement": Returns event["message"]
+		- "teleport": Returns event["message"]
+		- "building": Returns event["message"]
 		- Unknown types: Returns str(event) for debugging
 	"""
 	match event.get("type", ""):
@@ -182,6 +184,8 @@ func format_event(event: Dictionary) -> String:
 		"movement":
 			return event.get("message", "")
 		"teleport":
+			return event.get("message", "")
+		"building":
 			return event.get("message", "")
 		_:
 			# Fallback for unknown event types - extract message if available

@@ -380,16 +380,16 @@ func get_filename_timestamp() -> String:
 	]
 
 
-func sanitize_filename(name: String) -> String:
+func sanitize_filename(filename: String) -> String:
 	"""Sanitize a string for use as a filename.
 
 	Args:
-		name: Raw string to sanitize
+		filename: Raw string to sanitize
 
 	Returns:
 		Safe filename with spaces replaced by underscores, special chars removed
 	"""
-	var safe = name.strip_edges()
+	var safe = filename.strip_edges()
 	safe = safe.replace(" ", "_")
 
 	# Remove special characters
@@ -463,7 +463,7 @@ func _prune_cache() -> void:
 	entries.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
 	# Remove oldest 25%
-	var to_remove = max(1, entries.size() / 4)
+	var to_remove: int = max(1, int(entries.size() / 4.0))
 	for i in range(to_remove):
 		file_cache.erase(entries[i].path)
 

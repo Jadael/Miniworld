@@ -7,6 +7,15 @@
 ##
 ## Both players and AI agents have this component.
 ##
+## Command Privacy Model:
+## - PUBLIC commands (broadcast events to observers):
+##   - look, go, say, emote, examine (social/observable actions)
+##   - @dig, @exit, @teleport (building/admin actions)
+## - PRIVATE commands (no broadcast to observers):
+##   - think, dream, note, recall (internal mental processes)
+##   - who, where, rooms (information queries)
+##   - @save, @impersonate (admin/debug utilities)
+##
 ## Dependencies:
 ## - ComponentBase: Base class for all components
 ## - WorldKeeper: Object registry and lifecycle manager
@@ -589,16 +598,11 @@ func observe_event(event: Dictionary) -> void:
 		Does not observe own actions since those are already handled
 		through command execution results
 	"""
-	# DEBUG: Print all events before filtering
-	var event_actor_name = event.get("actor").name if event.get("actor") else "none"
-	print("[Actor DEBUG] %s received event from %s: type=%s" % [owner.name, event_actor_name, event.get("type", "unknown")])
-
 	# Don't observe our own actions (already got the command result)
 	if event.get("actor") == owner:
-		print("[Actor DEBUG] %s filtered out own event" % owner.name)
 		return
 
-	print("[ActorComponent] %s observed event: %s" % [owner.name, event.get("text", event.get("message", "unknown event"))])
+	# Emit event to observers (UI, Memory, AI agents, etc.)
 	event_observed.emit(event)
 
 
@@ -716,6 +720,16 @@ func _cmd_dig(args: Array) -> Dictionary:
 	var loc_comp: LocationComponent = LocationComponent.new()
 	new_room.add_component("location", loc_comp)
 
+	# Broadcast creation event to current location
+	if current_location:
+		EventWeaver.broadcast_to_location(current_location, {
+			"type": "building",
+			"actor": owner,
+			"action": "creates a room",
+			"target": new_room,
+			"message": "%s digs a new room: %s" % [owner.name, new_room.name]
+		})
+
 	return {
 		"success": true,
 		"message": "Created room: %s [%s]\nUse @exit to connect it to other rooms." % [new_room.name, new_room.id]
@@ -790,6 +804,15 @@ func _cmd_exit(args: Array) -> Dictionary:
 
 	# Create the exit
 	loc_comp.add_exit(exit_name, destination)
+
+	# Broadcast exit creation event to current location
+	EventWeaver.broadcast_to_location(current_location, {
+		"type": "building",
+		"actor": owner,
+		"action": "creates an exit",
+		"target": destination,
+		"message": "%s creates an exit '%s' leading to %s." % [owner.name, exit_name, destination.name]
+	})
 
 	return {
 		"success": true,

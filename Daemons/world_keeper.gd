@@ -486,8 +486,8 @@ func _load_character_from_markdown(content: String) -> WorldObject:
 		Loads memories from vault if MemoryComponent present
 		Does NOT restore location yet (done in pass 3)
 	"""
-	var char: WorldObject = create_object("character", "temp")
-	char.from_markdown(content)
+	var character: WorldObject = create_object("character", "temp")
+	character.from_markdown(content)
 
 	# Restore components based on Components section
 	var parsed: Dictionary = MarkdownVault.parse_frontmatter(content)
@@ -496,27 +496,27 @@ func _load_character_from_markdown(content: String) -> WorldObject:
 
 		if "actor" in body:
 			var actor_comp: ActorComponent = ActorComponent.new()
-			char.add_component("actor", actor_comp)
+			character.add_component("actor", actor_comp)
 
 		if "thinker" in body:
 			var thinker_comp: ThinkerComponent = ThinkerComponent.new()
 			# Set the AI profile from the character's description
-			thinker_comp.set_profile(char.description)
-			char.add_component("thinker", thinker_comp)
+			thinker_comp.set_profile(character.description)
+			character.add_component("thinker", thinker_comp)
 
 		if "memory" in body:
 			var memory_comp: MemoryComponent = MemoryComponent.new()
-			char.add_component("memory", memory_comp)
+			character.add_component("memory", memory_comp)
 
 			# Load memories from vault
-			var loaded_memories: Array[Dictionary] = memory_comp.load_memories_from_vault(char.name)
+			var loaded_memories: Array[Dictionary] = memory_comp.load_memories_from_vault(character.name)
 			for memory in loaded_memories:
 				memory_comp.add_memory(
 					memory.get("content", ""),
 					memory.get("metadata", {})
 				)
 
-	return char
+	return character
 
 
 func _save_world_snapshot() -> void:
@@ -555,10 +555,10 @@ func _save_world_snapshot() -> void:
 	content += "| Character | Location |\n"
 	content += "|-----------|----------|\n"
 
-	for char in get_objects_with_component("actor"):
-		var location: WorldObject = char.get_location()
+	for character in get_objects_with_component("actor"):
+		var location: WorldObject = character.get_location()
 		var location_name: String = location.name if location else "Nowhere"
-		content += "| [[%s]] | [[%s]] |\n" % [char.name, location_name]
+		content += "| [[%s]] | [[%s]] |\n" % [character.name, location_name]
 	content += "\n"
 
 	# Recent Events (placeholder)

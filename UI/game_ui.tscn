@@ -23,6 +23,7 @@ grow_vertical = 2
 
 [node name="EventScroll" type="RichTextLabel" parent="MainPanel"]
 layout_mode = 2
+focus_mode = 0
 bbcode_enabled = true
 scroll_following = true
 selection_enabled = true
@@ -60,6 +61,7 @@ layout_mode = 2
 custom_minimum_size = Vector2(0, 150)
 layout_mode = 2
 size_flags_vertical = 3
+focus_mode = 0
 bbcode_enabled = true
 fit_content = true
 
@@ -87,6 +89,7 @@ size_flags_vertical = 3
 
 [node name="OccupantsList" type="RichTextLabel" parent="SidePanel/OccupantsContainer/OccupantsPanel"]
 layout_mode = 2
+focus_mode = 0
 bbcode_enabled = true
 fit_content = true
 
@@ -111,4 +114,5 @@ placeholder_text = "Enter command..."
 
 [node name="SendButton" type="Button" parent="BottomPanel"]
 layout_mode = 2
+focus_mode = 0
 text = "Send"
