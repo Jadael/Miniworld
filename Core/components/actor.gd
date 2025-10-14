@@ -11,8 +11,11 @@
 ## - PUBLIC commands (broadcast events to observers):
 ##   - look, go, say, emote, examine (social/observable actions)
 ##   - @dig, @exit, @teleport (building/admin actions)
-## - PRIVATE commands (no broadcast to observers):
+## - PRIVATE CONTENT with OBSERVABLE BEHAVIOR:
 ##   - think, dream, note, recall (internal mental processes)
+##   - Observers see: "pauses in thought", "jots something down", etc.
+##   - But content remains private (can't see what they're thinking/writing)
+## - SILENT commands (no observable behavior):
 ##   - who, where, rooms (information queries)
 ##   - @save, @impersonate (admin/debug utilities)
 ##
@@ -389,6 +392,7 @@ func _cmd_think(args: Array) -> Dictionary:
 
 	Notes:
 		Thoughts are private - they go to memory but not to other actors.
+		However, observers will see the actor pause in contemplation.
 		This is useful for recording plans, observations, or reasoning that
 		isn't directly tied to a specific action.
 		AI agents can also include REASON: lines with their commands to
@@ -403,6 +407,15 @@ func _cmd_think(args: Array) -> Dictionary:
 	if owner.has_component("memory"):
 		var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
 		memory_comp.add_memory(thought)
+
+	# Broadcast observable behavior (but not the thought content)
+	if current_location:
+		EventWeaver.broadcast_to_location(current_location, {
+			"type": "action",
+			"actor": owner,
+			"action": "pauses in thought",
+			"message": "%s pauses in thought." % owner.name
+		})
 
 	return {
 		"success": true,
@@ -466,6 +479,15 @@ func _cmd_dream(_args: Array) -> Dictionary:
 	prompt += "Analyze these memory fragments. What patterns emerge? What connections can you make? "
 	prompt += "What insights or hunches arise? What might be worth investigating further?\n\n"
 	prompt += "Provide a brief analysis (2-4 sentences) focusing on actionable insights or interesting connections."
+
+	# Broadcast observable behavior (entering dream state)
+	if current_location:
+		EventWeaver.broadcast_to_location(current_location, {
+			"type": "action",
+			"actor": owner,
+			"action": "becomes still, eyes unfocused",
+			"message": "%s becomes still, eyes unfocused, lost in thought." % owner.name
+		})
 
 	# Request LLM analysis asynchronously
 	print("Dream: %s entering dream state..." % owner.name)
@@ -539,6 +561,15 @@ func _cmd_note(args: Array) -> Dictionary:
 
 	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
 
+	# Broadcast observable behavior (writing)
+	if current_location:
+		EventWeaver.broadcast_to_location(current_location, {
+			"type": "action",
+			"actor": owner,
+			"action": "jots something down",
+			"message": "%s jots something down." % owner.name
+		})
+
 	# Add note asynchronously
 	memory_comp.add_note_async(title, content, last_reason, func():
 		print("[Actor] %s completed note: %s" % [owner.name, title])
@@ -568,6 +599,15 @@ func _cmd_recall(args: Array) -> Dictionary:
 		return {"success": false, "message": "You have no memory to recall from."}
 
 	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
+
+	# Broadcast observable behavior (searching memory)
+	if current_location:
+		EventWeaver.broadcast_to_location(current_location, {
+			"type": "action",
+			"actor": owner,
+			"action": "searches their memory",
+			"message": "%s furrows their brow, searching their memory." % owner.name
+		})
 
 	# Search notes asynchronously
 	memory_comp.recall_notes_async(query, func(result: String):
