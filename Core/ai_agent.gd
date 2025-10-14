@@ -56,10 +56,14 @@ static func create(name: String, profile: String, starting_location: WorldObject
 	var memory_comp = MemoryComponent.new()
 	agent.add_component("memory", memory_comp)
 
+	# Set profile and think interval as properties (before adding Thinker)
+	# This ensures they're available when ThinkerComponent initializes
+	agent.set_property("thinker.profile", profile)
+	agent.set_property("thinker.think_interval", think_interval)
+
 	# Add Thinker component for autonomous AI decision-making
+	# It will read the profile and interval from properties during _on_added()
 	var thinker_comp = ThinkerComponent.new()
-	thinker_comp.set_profile(profile)
-	thinker_comp.set_think_interval(think_interval)
 	agent.add_component("thinker", thinker_comp)
 
 	# Place agent in the world at the specified location

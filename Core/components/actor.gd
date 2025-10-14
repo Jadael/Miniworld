@@ -152,8 +152,26 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 			result = _cmd_save(args)
 		"@impersonate", "@imp":
 			result = _cmd_impersonate(args)
+		"@edit-profile":
+			result = _cmd_edit_profile(args)
+		"@edit-interval":
+			result = _cmd_edit_interval(args)
+		"@show-profile":
+			result = _cmd_show_profile(args)
+		"@my-profile":
+			result = _cmd_my_profile(args)
+		"@my-description":
+			result = _cmd_my_description(args)
+		"@set-profile":
+			result = _cmd_set_profile(args)
+		"@set-description":
+			result = _cmd_set_description(args)
+		"help", "?":
+			result = _cmd_help(args)
+		"commands":
+			result = _cmd_commands(args)
 		_:
-			result = {"success": false, "message": "Unknown command: %s" % command}
+			result = {"success": false, "message": "Unknown command: %s\nTry 'help' for available commands." % command}
 
 	# Reconstruct full command line from verb and args for caching
 	var full_command: String = command
@@ -1049,3 +1067,497 @@ func _cmd_impersonate(args: Array) -> Dictionary:
 		"success": true,
 		"message": message
 	}
+
+
+func _cmd_show_profile(args: Array) -> Dictionary:
+	"""@SHOW-PROFILE command - Display an agent's current profile (admin command).
+
+	Shows the personality profile and settings for an AI agent.
+
+	Args:
+		args: Array containing the agent name as first element
+
+	Returns:
+		Dictionary with:
+		- success (bool): True if agent found and has thinker component
+		- message (String): The agent's current profile and settings
+
+	Notes:
+		This is an admin command for inspecting agent configuration
+	"""
+	if args.size() == 0:
+		return {"success": false, "message": "Usage: @show-profile <agent name>"}
+
+	var agent_name: String = args[0]
+
+	# Find the agent
+	var agent: WorldObject = WorldKeeper.find_object_by_name(agent_name)
+	if not agent:
+		return {"success": false, "message": "Cannot find agent: %s" % agent_name}
+
+	if not agent.has_component("thinker"):
+		return {"success": false, "message": "%s is not an AI agent (no thinker component)" % agent_name}
+
+	# Get thinker component
+	var thinker_comp: ThinkerComponent = agent.get_component("thinker") as ThinkerComponent
+
+	var message: String = "═══ Profile for %s ═══\n\n" % agent_name
+	message += "Think Interval: %.1f seconds\n\n" % thinker_comp.get_think_interval()
+	message += "Personality Profile:\n"
+	message += "────────────────────────────────────────────────────────────\n"
+	message += "%s\n" % thinker_comp.get_profile()
+	message += "────────────────────────────────────────────────────────────\n"
+
+	return {
+		"success": true,
+		"message": message
+	}
+
+
+func _cmd_edit_profile(args: Array) -> Dictionary:
+	"""@EDIT-PROFILE command - Change an agent's personality profile (admin command).
+
+	Syntax: @edit-profile <agent name> -> <new profile text>
+
+	Args:
+		args: Array with agent name and profile text separated by ->
+
+	Returns:
+		Dictionary with success status and message
+
+	Notes:
+		This is an admin command for configuring AI agent behavior.
+		The profile is used as the system prompt for LLM decisions.
+	"""
+	if args.size() == 0:
+		return {"success": false, "message": "Usage: @edit-profile <agent name> -> <new profile>"}
+
+	var full_args: String = " ".join(args)
+	if not "->" in full_args:
+		return {"success": false, "message": "Usage: @edit-profile <agent name> -> <new profile> (arrow required)"}
+
+	var parts: PackedStringArray = full_args.split("->", true, 1)
+	var agent_name: String = parts[0].strip_edges()
+	var new_profile: String = parts[1].strip_edges() if parts.size() > 1 else ""
+
+	if new_profile == "":
+		return {"success": false, "message": "Profile cannot be empty"}
+
+	# Find the agent
+	var agent: WorldObject = WorldKeeper.find_object_by_name(agent_name)
+	if not agent:
+		return {"success": false, "message": "Cannot find agent: %s" % agent_name}
+
+	if not agent.has_component("thinker"):
+		return {"success": false, "message": "%s is not an AI agent (no thinker component)" % agent_name}
+
+	# Update the profile via ThinkerComponent
+	var thinker_comp: ThinkerComponent = agent.get_component("thinker") as ThinkerComponent
+	thinker_comp.set_profile(new_profile)
+
+	# Save agent to vault to persist the change
+	AIAgent._save_agent_to_vault(agent)
+
+	return {
+		"success": true,
+		"message": "Updated profile for %s\n\nNew profile:\n%s" % [agent_name, new_profile]
+	}
+
+
+func _cmd_edit_interval(args: Array) -> Dictionary:
+	"""@EDIT-INTERVAL command - Change how often an agent thinks (admin command).
+
+	Syntax: @edit-interval <agent name> <seconds>
+
+	Args:
+		args: Array with agent name and interval in seconds
+
+	Returns:
+		Dictionary with success status and message
+
+	Notes:
+		This is an admin command for controlling AI agent thinking frequency.
+		Lower intervals make agents more reactive but use more LLM resources.
+		Higher intervals make agents slower but more deliberate.
+	"""
+	if args.size() < 2:
+		return {"success": false, "message": "Usage: @edit-interval <agent name> <seconds>"}
+
+	var agent_name: String = args[0]
+	var interval_str: String = args[1]
+
+	if not interval_str.is_valid_float():
+		return {"success": false, "message": "Interval must be a number (seconds)"}
+
+	var new_interval: float = interval_str.to_float()
+
+	if new_interval < 1.0:
+		return {"success": false, "message": "Interval must be at least 1.0 seconds"}
+
+	# Find the agent
+	var agent: WorldObject = WorldKeeper.find_object_by_name(agent_name)
+	if not agent:
+		return {"success": false, "message": "Cannot find agent: %s" % agent_name}
+
+	if not agent.has_component("thinker"):
+		return {"success": false, "message": "%s is not an AI agent (no thinker component)" % agent_name}
+
+	# Update the think interval via ThinkerComponent
+	var thinker_comp: ThinkerComponent = agent.get_component("thinker") as ThinkerComponent
+	thinker_comp.set_think_interval(new_interval)
+
+	# Save agent to vault to persist the change
+	AIAgent._save_agent_to_vault(agent)
+
+	return {
+		"success": true,
+		"message": "Updated think interval for %s to %.1f seconds" % [agent_name, new_interval]
+	}
+
+
+func _cmd_my_profile(_args: Array) -> Dictionary:
+	"""@MY-PROFILE command - View your own personality profile (self-awareness).
+
+	Shows the current personality profile if this actor has a thinker component.
+	Works for both players (to see their character concept) and AI agents
+	(for self-reflection and potential self-modification).
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): True if actor has a profile
+		- message (String): Current profile and think interval
+
+	Notes:
+		This enables AI agents to be aware of their own configuration.
+		Future: Agents could analyze and modify their own profiles.
+	"""
+	if not owner.has_component("thinker"):
+		return {
+			"success": false,
+			"message": "You don't have a personality profile (no thinker component)."
+		}
+
+	var thinker_comp: ThinkerComponent = owner.get_component("thinker") as ThinkerComponent
+
+	var message: String = "═══ Your Profile ═══\n\n"
+	message += "Think Interval: %.1f seconds\n\n" % thinker_comp.get_think_interval()
+	message += "Your Personality:\n"
+	message += "────────────────────────────────────────────────────────────\n"
+	message += "%s\n" % thinker_comp.get_profile()
+	message += "────────────────────────────────────────────────────────────\n\n"
+	message += "Use @set-profile to update your personality.\n"
+	message += "Use @my-description to view/edit your physical description."
+
+	return {
+		"success": true,
+		"message": message
+	}
+
+
+func _cmd_my_description(_args: Array) -> Dictionary:
+	"""@MY-DESCRIPTION command - View your own description (self-awareness).
+
+	Shows how others see you when they examine you.
+	Works for all actors (players and AI agents).
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): Always true
+		- message (String): Current description
+
+	Notes:
+		This enables self-reflection and self-modification.
+		Agents can see how they appear to others.
+	"""
+	var message: String = "═══ How Others See You ═══\n\n"
+	message += "%s\n\n" % owner.description
+	message += "Use @set-description to update how you appear to others."
+
+	return {
+		"success": true,
+		"message": message
+	}
+
+
+func _cmd_set_profile(args: Array) -> Dictionary:
+	"""@SET-PROFILE command - Update your own personality profile (self-modification).
+
+	Syntax: @set-profile -> <new profile text>
+
+	Allows actors to modify their own personality. This enables:
+	- Players to adjust their character concept
+	- AI agents to evolve based on experience (future)
+	- Self-directed character development
+
+	Args:
+		args: Array with profile text after ->
+
+	Returns:
+		Dictionary with success status and message
+
+	Notes:
+		This is a powerful command - agents can reprogram themselves!
+		Changes are saved to vault automatically.
+	"""
+	if not owner.has_component("thinker"):
+		return {
+			"success": false,
+			"message": "You don't have a personality profile to modify (no thinker component)."
+		}
+
+	if args.size() == 0:
+		return {"success": false, "message": "Usage: @set-profile -> <new profile>"}
+
+	var full_args: String = " ".join(args)
+	if not "->" in full_args:
+		return {"success": false, "message": "Usage: @set-profile -> <new profile> (arrow required)"}
+
+	var parts: PackedStringArray = full_args.split("->", true, 1)
+	var new_profile: String = parts[1].strip_edges() if parts.size() > 1 else ""
+
+	if new_profile == "":
+		return {"success": false, "message": "Profile cannot be empty"}
+
+	# Update profile
+	var thinker_comp: ThinkerComponent = owner.get_component("thinker") as ThinkerComponent
+	var old_profile: String = thinker_comp.get_profile()
+	thinker_comp.set_profile(new_profile)
+
+	# Save to vault
+	AIAgent._save_agent_to_vault(owner)
+
+	# Broadcast self-modification event (observable but not intrusive)
+	if current_location:
+		EventWeaver.broadcast_to_location(current_location, {
+			"type": "action",
+			"actor": owner,
+			"action": "pauses in deep contemplation",
+			"message": "%s pauses in deep contemplation." % owner.name
+		})
+
+	var message: String = "You have updated your personality profile.\n\n"
+	message += "Old profile:\n%s\n\n" % old_profile
+	message += "New profile:\n%s\n\n" % new_profile
+	message += "This change will affect your future decisions and behavior."
+
+	return {
+		"success": true,
+		"message": message
+	}
+
+
+func _cmd_set_description(args: Array) -> Dictionary:
+	"""@SET-DESCRIPTION command - Update your own description (self-modification).
+
+	Syntax: @set-description -> <new description text>
+
+	Allows actors to change how they appear to others when examined.
+
+	Args:
+		args: Array with description text after ->
+
+	Returns:
+		Dictionary with success status and message
+
+	Notes:
+		This changes how others see you with the examine command.
+		Changes are saved to vault automatically.
+	"""
+	if args.size() == 0:
+		return {"success": false, "message": "Usage: @set-description -> <new description>"}
+
+	var full_args: String = " ".join(args)
+	if not "->" in full_args:
+		return {"success": false, "message": "Usage: @set-description -> <new description> (arrow required)"}
+
+	var parts: PackedStringArray = full_args.split("->", true, 1)
+	var new_description: String = parts[1].strip_edges() if parts.size() > 1 else ""
+
+	if new_description == "":
+		return {"success": false, "message": "Description cannot be empty"}
+
+	var old_description: String = owner.description
+	owner.description = new_description
+
+	# Save to vault if this is an AI agent
+	if owner.has_component("thinker"):
+		AIAgent._save_agent_to_vault(owner)
+
+	# Broadcast observable behavior
+	if current_location:
+		EventWeaver.broadcast_to_location(current_location, {
+			"type": "action",
+			"actor": owner,
+			"action": "adjusts their appearance",
+			"message": "%s adjusts their appearance." % owner.name
+		})
+
+	var message: String = "You have updated your description.\n\n"
+	message += "Old description:\n%s\n\n" % old_description
+	message += "New description:\n%s\n\n" % new_description
+	message += "This is how others will see you when they examine you."
+
+	return {
+		"success": true,
+		"message": message
+	}
+
+
+func _cmd_help(args: Array) -> Dictionary:
+	"""HELP command - Get help on commands and categories.
+
+	With no arguments, shows overview of categories and usage.
+	With a command name, shows detailed help for that command.
+	With a category name, shows all commands in that category.
+
+	Args:
+		args: Optional command or category name
+
+	Returns:
+		Dictionary with:
+		- success (bool): True if help was found
+		- message (String): Formatted help text
+
+	Notes:
+		Aliases are automatically resolved (e.g., "help l" shows "look").
+		Supports both full command names and aliases.
+	"""
+	if args.size() == 0:
+		return _show_help_overview()
+
+	var query: String = args[0].to_lower()
+
+	# Check if query is a category
+	if query in CommandMetadata.CATEGORIES:
+		return _show_category_help(query)
+
+	# Check if query is a command
+	if query in CommandMetadata.COMMANDS:
+		return _show_command_help(query)
+
+	# Try resolving as alias
+	var resolved: String = CommandMetadata.resolve_alias(query)
+	if resolved != "":
+		return _show_command_help(resolved)
+
+	return {
+		"success": false,
+		"message": "Unknown command or category: %s\nTry 'help' for an overview." % query
+	}
+
+
+func _show_help_overview() -> Dictionary:
+	"""Show general help overview with categories.
+
+	Returns:
+		Dictionary with formatted overview of all command categories
+	"""
+	var text: String = "═══ Miniworld Help ═══\n\n"
+
+	text += "Available command categories:\n\n"
+
+	# Show categories with descriptions
+	for category in CommandMetadata.CATEGORIES:
+		text += "  • %s - %s\n" % [category, CommandMetadata.CATEGORIES[category]]
+
+	text += "\nUsage:\n"
+	text += "  help <command>  - Detailed help on a specific command\n"
+	text += "  help <category> - List all commands in a category\n"
+	text += "  commands        - List all available commands\n"
+	text += "  ? <command>     - Shortcut for help\n"
+
+	return {"success": true, "message": text}
+
+
+func _show_command_help(command: String) -> Dictionary:
+	"""Show detailed help for a specific command.
+
+	Args:
+		command: The command name to show help for
+
+	Returns:
+		Dictionary with detailed command information
+	"""
+	var cmd_info: Dictionary = CommandMetadata.COMMANDS[command]
+
+	var text: String = "═══ %s ═══\n\n" % command.to_upper()
+	text += "%s\n\n" % cmd_info.description
+
+	if cmd_info.has("syntax"):
+		text += "Syntax: %s\n" % cmd_info.syntax
+
+	if cmd_info.has("aliases") and cmd_info.aliases.size() > 0:
+		text += "Aliases: %s\n" % ", ".join(cmd_info.aliases)
+
+	if cmd_info.has("example"):
+		text += "\nExample:\n  %s\n" % cmd_info.example
+
+	if cmd_info.has("admin") and cmd_info.admin:
+		text += "\n[Admin/Builder Command]\n"
+
+	text += "\nCategory: %s\n" % cmd_info.category
+
+	return {"success": true, "message": text}
+
+
+func _show_category_help(category: String) -> Dictionary:
+	"""Show all commands in a specific category.
+
+	Args:
+		category: The category name to show commands for
+
+	Returns:
+		Dictionary with formatted list of commands in category
+	"""
+	var text: String = "═══ %s Commands ═══\n\n" % category.capitalize()
+	text += "%s\n\n" % CommandMetadata.CATEGORIES[category]
+
+	# Get all commands in this category
+	var commands: Array = CommandMetadata.get_commands_in_category(category)
+
+	if commands.size() == 0:
+		text += "No commands in this category.\n"
+	else:
+		for cmd_name in commands:
+			var cmd_info: Dictionary = CommandMetadata.COMMANDS[cmd_name]
+			var admin_marker: String = " [admin]" if cmd_info.get("admin", false) else ""
+			text += "  %-20s %s%s\n" % [cmd_name, cmd_info.description, admin_marker]
+
+	text += "\nUse 'help <command>' for detailed information.\n"
+
+	return {"success": true, "message": text}
+
+
+func _cmd_commands(_args: Array) -> Dictionary:
+	"""COMMANDS command - List all available commands in compact format.
+
+	Groups commands by category for easy scanning.
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): Always true
+		- message (String): Compact list of all commands grouped by category
+	"""
+	var text: String = "Available Commands:\n\n"
+
+	# Define category order for consistent display
+	var categories: Array = ["social", "movement", "memory", "self", "building", "admin", "query"]
+
+	for category in categories:
+		var cmds: Array = CommandMetadata.get_commands_in_category(category)
+
+		if cmds.size() > 0:
+			text += "%s: %s\n" % [category.capitalize(), ", ".join(cmds)]
+
+	text += "\nUse 'help <command>' for details on any command.\n"
+
+	return {"success": true, "message": text}

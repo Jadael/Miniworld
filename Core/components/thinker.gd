@@ -22,12 +22,13 @@ extends ComponentBase
 class_name ThinkerComponent
 
 
-## The agent's personality profile and behavioral guidelines
-## Used as system prompt context for LLM decision-making
-var profile: String = "A thoughtful entity."
+## DEPRECATED: Use owner.get_property("thinker.profile") instead
+## This var exists only for backwards compatibility
+var _deprecated_profile: String = "A thoughtful entity."
 
-## How often the agent thinks and makes decisions, in seconds
-var think_interval: float = 6.0
+## DEPRECATED: Use owner.get_property("thinker.think_interval") instead
+## This var exists only for backwards compatibility
+var _deprecated_think_interval: float = 6.0
 
 ## Internal countdown timer for next think cycle
 var think_timer: float = 0.0
@@ -43,25 +44,49 @@ signal thought_completed(command: String, reason: String)
 func _on_added(obj: WorldObject) -> void:
 	"""Called when this component is added to a WorldObject.
 
-	Initializes the owner reference and think timer.
+	Initializes the owner reference, think timer, and sets up default
+	properties if they don't already exist.
 
 	Args:
 		obj: The WorldObject this component was added to
 	"""
 	owner = obj
+
+	# Initialize default properties if not already set
+	if not owner.has_property("thinker.profile"):
+		owner.set_property("thinker.profile", _deprecated_profile)
+	if not owner.has_property("thinker.think_interval"):
+		owner.set_property("thinker.think_interval", _deprecated_think_interval)
+	if not owner.has_property("thinker.prompt_template"):
+		owner.set_property("thinker.prompt_template", "default")
+
 	# Start thinking after one full interval
-	think_timer = think_interval
+	think_timer = get_think_interval()
 
 
 func set_profile(new_profile: String) -> void:
 	"""Set the agent's personality profile.
 
-	Updates the profile used as system context for LLM decisions.
+	Updates the profile property used as system context for LLM decisions.
 
 	Args:
 		new_profile: Personality description and behavioral guidelines
 	"""
-	profile = new_profile
+	if owner:
+		owner.set_property("thinker.profile", new_profile)
+	else:
+		_deprecated_profile = new_profile
+
+
+func get_profile() -> String:
+	"""Get the agent's personality profile.
+
+	Returns:
+		The profile string from properties, or deprecated fallback
+	"""
+	if owner and owner.has_property("thinker.profile"):
+		return owner.get_property("thinker.profile")
+	return _deprecated_profile
 
 
 func set_think_interval(interval: float) -> void:
@@ -72,7 +97,21 @@ func set_think_interval(interval: float) -> void:
 	Args:
 		interval: Time in seconds between think cycles
 	"""
-	think_interval = interval
+	if owner:
+		owner.set_property("thinker.think_interval", interval)
+	else:
+		_deprecated_think_interval = interval
+
+
+func get_think_interval() -> float:
+	"""Get the agent's think interval.
+
+	Returns:
+		The think interval from properties, or deprecated fallback
+	"""
+	if owner and owner.has_property("thinker.think_interval"):
+		return owner.get_property("thinker.think_interval")
+	return _deprecated_think_interval
 
 
 func process(delta: float) -> void:
@@ -90,7 +129,7 @@ func process(delta: float) -> void:
 	think_timer -= delta
 	if think_timer <= 0.0:
 		print("[Thinker] %s is thinking..." % owner.name)
-		think_timer = think_interval
+		think_timer = get_think_interval()
 		_think()
 
 
@@ -121,7 +160,7 @@ func _think() -> void:
 			var fresh_context: Dictionary = _build_context()
 			return _construct_prompt(fresh_context)
 
-		Shoggoth.generate_async(prompt_generator, profile, Callable(self, "_on_thought_complete"))
+		Shoggoth.generate_async(prompt_generator, get_profile(), Callable(self, "_on_thought_complete"))
 	else:
 		# Fixed FIXME: Split ternary into separate conditional to avoid type incompatibility
 		var client_status: String = "N/A"
@@ -152,7 +191,7 @@ func _build_context() -> Dictionary:
 	var location: WorldObject = owner.get_location()
 	var context: Dictionary = {
 		"name": owner.name,
-		"profile": profile,
+		"profile": get_profile(),
 		"location_name": location.name if location else "nowhere",
 		"location_description": location.description if location else "",
 		"exits": [],
@@ -188,6 +227,11 @@ func _construct_prompt(context: Dictionary) -> String:
 	Uses the Python prototype strategy: repeats current situation at
 	the beginning and end to act like an automatic LOOK command.
 
+	Now supports customization via properties:
+	- "thinker.prompt_sections" (Dictionary) - override specific sections
+	- "thinker.custom_commands" (Array[String]) - additional commands
+	- "thinker.anti_repetition_hint" (String) - custom anti-loop text
+
 	Args:
 		context: Dictionary from _build_context() with situation info
 
@@ -195,7 +239,7 @@ func _construct_prompt(context: Dictionary) -> String:
 		String containing the complete LLM prompt
 
 	Notes:
-		Expects LLM to respond with COMMAND: and REASON: lines
+		Expects LLM to respond with MOO-style: "command args | reason"
 	"""
 	var prompt: String = ""
 
@@ -244,21 +288,44 @@ func _construct_prompt(context: Dictionary) -> String:
 	else:
 		prompt += "You are alone.\n\n"
 
-	# Anti-repetition hints - make this VERY clear
-	prompt += "IMPORTANT: You already looked around (see above). Don't look again unless something changes! "
-	prompt += "Review your recent memories to see what you did last. "
-	prompt += "If stuck or repeating yourself, try something NEW - move to a different location, "
-	prompt += "talk to someone, or examine something interesting.\n\n"
+	# Anti-repetition hints - customizable via property
+	var anti_rep_hint: String = ""
+	if owner.has_property("thinker.anti_repetition_hint"):
+		anti_rep_hint = owner.get_property("thinker.anti_repetition_hint")
+	else:
+		# Default anti-repetition text
+		anti_rep_hint = "IMPORTANT: You already looked around (see above). Don't look again unless something changes! "
+		anti_rep_hint += "Review your recent memories to see what you did last. "
+		anti_rep_hint += "If stuck or repeating yourself, try something NEW - move to a different location, "
+		anti_rep_hint += "talk to someone, or examine something interesting."
+	prompt += anti_rep_hint + "\n\n"
 
-	# Available command reference
+	# Available command reference - customizable via property
 	prompt += "## Available Commands\n\n"
-	prompt += "- go <exit>: Move to another location\n"
-	prompt += "- say <message>: Speak to others\n"
-	prompt += "- emote <action>: Perform an action\n"
-	prompt += "- examine <target>: Look at something/someone closely\n"
-	prompt += "- note <title> -> <content>: Save important information to your personal wiki\n"
-	prompt += "- recall <query>: Search your notes for relevant information\n"
-	prompt += "- dream: Review jumbled memories for new insights (when feeling stuck or curious)\n\n"
+	var command_list: Array = []
+	if owner.has_property("thinker.command_list"):
+		command_list = owner.get_property("thinker.command_list")
+	else:
+		# Default command list
+		command_list = [
+			"go <exit>: Move to another location",
+			"say <message>: Speak to others",
+			"emote <action>: Perform an action",
+			"examine <target>: Look at something/someone closely",
+			"note <title> -> <content>: Save important information to your personal wiki",
+			"recall <query>: Search your notes for relevant information",
+			"dream: Review jumbled memories for new insights (when feeling stuck or curious)",
+			"@my-profile: View your personality profile and think interval",
+			"@my-description: View how others see you",
+			"@set-profile -> <text>: Update your personality (self-modification)",
+			"@set-description -> <text>: Update your appearance",
+			"help [command|category]: Get help on commands (try 'help social' or 'help say')",
+			"commands: List all available commands"
+		]
+
+	for cmd in command_list:
+		prompt += "- %s\n" % cmd
+	prompt += "\n"
 
 	# Response format instructions
 	prompt += "## Response Format\n\n"
