@@ -28,12 +28,15 @@ class_name MemoryComponent
 ## Each entry is a Dictionary with: type, content, timestamp, metadata
 var memories: Array[Dictionary] = []
 
-## Persistent notes indexed by title
-## Format: {title: {content: String, created: int}}
+## Persistent notes indexed by title (in-memory cache)
+## Format: {title: {content: String, filepath: String, created: int}}
 var notes: Dictionary = {}
 
 ## Maximum memories to retain before oldest are pruned
 var max_memories: int = 100
+
+## VectorStore component for semantic search
+var vector_store: VectorStoreComponent = null
 
 
 func _on_added(obj: WorldObject) -> void:
@@ -43,6 +46,14 @@ func _on_added(obj: WorldObject) -> void:
 		obj: The WorldObject this component is being added to
 	"""
 	super._on_added(obj)
+
+	# Create VectorStore component
+	vector_store = VectorStoreComponent.new()
+	vector_store.owner = obj
+	vector_store._on_added(obj)
+
+	# Load notes from vault
+	load_notes_from_vault(obj.name)
 
 	# Connect to actor events for automatic memory recording
 	if obj.has_component("actor"):
@@ -96,6 +107,9 @@ func add_memory(content: String, metadata: Dictionary = {}) -> void:
 		- Lines starting with ">" are command echoes
 		- Other lines are observations or results
 	"""
+	# DEBUG: Print what's being stored
+	print("[Memory DEBUG] %s storing: %s" % [owner.name if owner else "unknown", content])
+
 	# Build metadata with current context if owner exists
 	var full_metadata: Dictionary = metadata.duplicate()
 	if owner:
@@ -246,10 +260,10 @@ func _on_command_executed(_cmd: String, result: Dictionary, reason: String) -> v
 		_cmd: The command verb (unused, we use last_command for full string)
 		result: Command result Dictionary
 		reason: Optional reasoning provided with command
-	"""
-	if not result.success:
-		return  # Only record successful commands
 
+	Notes:
+		Records BOTH successful and failed commands so agents learn from mistakes
+	"""
 	# Get actor component to access full command string
 	if not owner.has_component("actor"):
 		return
@@ -261,7 +275,13 @@ func _on_command_executed(_cmd: String, result: Dictionary, reason: String) -> v
 	var command_line: String = "> %s" % full_command
 	if reason != "":
 		command_line += " | %s" % reason
-	var transcript: String = "%s\n%s" % [command_line, result.message]
+
+	# Prefix failures with "❌" for visibility
+	var message: String = result.message
+	if not result.success:
+		message = "❌ " + message
+
+	var transcript: String = "%s\n%s" % [command_line, message]
 
 	add_memory(transcript)
 
@@ -455,3 +475,140 @@ func _parse_iso_timestamp(iso_string: String) -> int:
 	}
 
 	return int(Time.get_unix_time_from_datetime_dict(datetime))
+
+
+## Note Management
+
+func add_note_async(title: String, content: String, reason: String, callback: Callable) -> void:
+	"""Create or update note with embedding generation.
+
+	Args:
+		title: Note title (unique key, overwrites existing)
+		content: Note body
+		reason: Why this note was created
+		callback: Called when embedding completes
+	"""
+	# Save markdown file
+	var sanitized_title: String = MarkdownVault.sanitize_filename(title)
+	var agent_path: String = MarkdownVault.AGENTS_PATH + "/" + MarkdownVault.sanitize_filename(owner.name)
+	var note_path: String = agent_path + "/notes/" + sanitized_title + ".md"
+
+	var frontmatter: Dictionary = {
+		"title": title,
+		"created": MarkdownVault.get_timestamp(),
+		"reason": reason
+	}
+	if owner:
+		var location: WorldObject = owner.get_location()
+		if location:
+			frontmatter["location"] = location.name
+
+	var full_content: String = MarkdownVault.create_frontmatter(frontmatter)
+	full_content += "# %s\n\n%s\n" % [title, content]
+
+	MarkdownVault.write_file(note_path, full_content)
+
+	# Cache note
+	notes[title] = {"content": content, "filepath": note_path, "created": Time.get_unix_time_from_system()}
+
+	# Generate embeddings asynchronously
+	if Shoggoth and Shoggoth.ollama_client:
+		Shoggoth.generate_embeddings_async([title, content], func(embeddings: Array):
+			if embeddings.size() >= 2:
+				var title_vec: Array = embeddings[0]
+				var content_vec: Array = embeddings[1]
+				var combined_vec: Array = _combine_vectors(title_vec, content_vec, 0.3, 0.7)
+
+				vector_store.upsert_vector(sanitized_title, title_vec, content_vec, combined_vec, {
+					"title": title,
+					"updated_at": MarkdownVault.get_timestamp()
+				})
+			callback.call()
+		)
+	else:
+		callback.call()
+
+
+func recall_notes_async(query: String, callback: Callable) -> void:
+	"""Search notes by semantic query.
+
+	Args:
+		query: Search phrase
+		callback: Callable(result_text: String) - formatted results
+	"""
+	if not Shoggoth or not Shoggoth.ollama_client:
+		callback.call("Semantic search unavailable.")
+		return
+
+	# Generate query embedding
+	Shoggoth.generate_embeddings_async(query, func(embeddings: Array):
+		if embeddings.size() == 0:
+			callback.call("Failed to generate query embedding.")
+			return
+
+		var query_vec: Array = embeddings[0]
+
+		# Find similar notes (top 10)
+		var similar: Array[Dictionary] = vector_store.find_similar(query_vec, "combined_vector", 10, 0.0)
+
+		# Load and format results
+		var results: String = "Notes matching '%s':\n\n" % query
+		if similar.size() == 0:
+			results += "No notes found."
+		else:
+			for item in similar:
+				var note_id: String = item.note_id
+				var similarity: float = item.similarity
+				var note_data: Dictionary = notes.get(note_id, {})
+				if note_data.has("content"):
+					var title: String = vector_store.vectors.get(note_id, {}).get("metadata", {}).get("title", note_id)
+					results += "## %s (%d%% match)\n%s\n\n" % [title, int(similarity * 100), note_data.content]
+
+		callback.call(results)
+	)
+
+
+func load_notes_from_vault(agent_name: String) -> void:
+	"""Load notes from markdown files."""
+	var agent_path: String = MarkdownVault.AGENTS_PATH + "/" + MarkdownVault.sanitize_filename(agent_name)
+	var notes_path: String = agent_path + "/notes"
+
+	var files: Array[String] = MarkdownVault.list_files(notes_path, ".md")
+
+	for filename in files:
+		var content: String = MarkdownVault.read_file(notes_path + "/" + filename)
+		if content.is_empty():
+			continue
+
+		var parsed: Dictionary = MarkdownVault.parse_frontmatter(content)
+		var title: String = parsed.frontmatter.get("title", filename.replace(".md", ""))
+		var body: String = parsed.body.strip_edges()
+
+		# Remove "# Title\n\n" header if present
+		var header_pattern = "# " + title + "\n\n"
+		if body.begins_with(header_pattern):
+			body = body.substr(header_pattern.length())
+
+		notes[title] = {
+			"content": body,
+			"filepath": notes_path + "/" + filename,
+			"created": _parse_iso_timestamp(parsed.frontmatter.get("created", ""))
+		}
+
+
+func _combine_vectors(vec_a: Array, vec_b: Array, weight_a: float, weight_b: float) -> Array:
+	"""Combine two vectors with weights and normalize."""
+	var combined: Array = []
+	var norm: float = 0.0
+
+	for i in range(vec_a.size()):
+		var val: float = weight_a * float(vec_a[i]) + weight_b * float(vec_b[i])
+		combined.append(val)
+		norm += val * val
+
+	norm = sqrt(norm)
+	if norm > 0.0:
+		for i in range(combined.size()):
+			combined[i] = float(combined[i]) / norm
+
+	return combined

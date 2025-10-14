@@ -146,11 +146,18 @@ After documentation changes:
 
 ### After Successful Changes: Commit and Update
 
+**IMPORTANT: Git Commit Workflow**
+- The director prefers to review and make commits via GitHub Desktop
+- DO NOT create git commits automatically
+- DO NOT run `git add`, `git commit`, or `git push` commands
+- After completing work, inform the director that changes are ready for review
+- The director will stage, review, and commit changes using their preferred tools
+
 After completing documentation work:
 
 1. Test the project to ensure nothing broke
 2. Review all changed files to ensure consistency
-3. Create a commit with descriptive message: "docs: Comprehensive documentation pass for [component name]"
+3. Inform the director that changes are ready for commit review
 4. Update this CLAUDE.md section with any new standards or patterns discovered
 5. Consider updating ARCHITECTURE.md or other high-level docs if significant insights emerged
 

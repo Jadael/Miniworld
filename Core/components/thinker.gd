@@ -203,8 +203,8 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "You are %s.\n\n" % context.name
 	prompt += "%s\n\n" % context.profile
 
-	# FIRST presentation: Current situation (like an automatic LOOK)
-	prompt += "You LOOK around and see:\n\n"
+	# FIRST presentation: Current situation (automatic LOOK already happened)
+	prompt += "You just looked around and see:\n\n"
 	prompt += "Location: %s\n" % context.location_name
 	prompt += "%s\n\n" % context.location_description
 
@@ -244,33 +244,35 @@ func _construct_prompt(context: Dictionary) -> String:
 	else:
 		prompt += "You are alone.\n\n"
 
-	# Anti-repetition hints (no color tags for LLM)
-	prompt += "Hint: Review your prior command and what happened since then. "
-	prompt += "If you are stuck or keep doing the same thing, try something different! "
-	prompt += "Simply looking around repeatedly without new information wastes time. "
-	prompt += "If nothing has changed, consider moving to a different location or initiating conversation.\n\n"
+	# Anti-repetition hints - make this VERY clear
+	prompt += "IMPORTANT: You already looked around (see above). Don't look again unless something changes! "
+	prompt += "Review your recent memories to see what you did last. "
+	prompt += "If stuck or repeating yourself, try something NEW - move to a different location, "
+	prompt += "talk to someone, or examine something interesting.\n\n"
 
 	# Available command reference
 	prompt += "## Available Commands\n\n"
-	prompt += "- look: Observe your surroundings (only useful if something changed)\n"
 	prompt += "- go <exit>: Move to another location\n"
 	prompt += "- say <message>: Speak to others\n"
 	prompt += "- emote <action>: Perform an action\n"
 	prompt += "- examine <target>: Look at something/someone closely\n"
+	prompt += "- note <title> -> <content>: Save important information to your personal wiki\n"
+	prompt += "- recall <query>: Search your notes for relevant information\n"
 	prompt += "- dream: Review jumbled memories for new insights (when feeling stuck or curious)\n\n"
 
 	# Response format instructions
 	prompt += "## Response Format\n\n"
 	prompt += "Respond with a single line using MOO-style syntax:\n\n"
 	prompt += "command args | reason\n\n"
-	prompt += "The | separator is optional. Everything after | is your private reasoning "
+	prompt += "Everything after | is your private reasoning "
 	prompt += "(not visible to others, but recorded in your memory for future reference).\n\n"
 	prompt += "Examples:\n"
-	prompt += "- look\n"
-	prompt += "- go garden | I want to explore and maybe meet someone new\n"
+	prompt += "- go garden | Want to explore somewhere new\n"
 	prompt += "- say Hello! How are you today?\n"
 	prompt += "- emote waves enthusiastically | They look friendly, making a connection\n"
-	prompt += "- examine Moss | Curious about this contemplative being\n\n"
+	prompt += "- examine Moss | Curious about this contemplative being\n"
+	prompt += "- note Moss Observations -> Contemplative being in garden, likes philosophy\n"
+	prompt += "- recall skroderiders\n\n"
 	prompt += "What do you want to do?\n"
 
 	return prompt

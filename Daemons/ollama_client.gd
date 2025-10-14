@@ -27,11 +27,22 @@ signal generate_finished(result: String)
 ## error: Human-readable error message describing the failure
 signal generate_failed(error: String)
 
+## Emitted when embedding generation completes successfully
+## embeddings: Array of Arrays (each inner array is a float vector)
+signal embed_finished(embeddings: Array)
+
+## Emitted when embedding generation fails
+## error: Human-readable error message
+signal embed_failed(error: String)
+
 ## URL of the Ollama API server
 var host: String = "http://localhost:11434"
 
 ## Name of the Ollama model to use for generation (e.g., "llama3:8b", "mistral:latest")
 var model: String = "gemma3:27b"
+
+## Name of the Ollama model to use for embeddings (e.g., "embeddinggemma", "all-minilm")
+var embedding_model: String = "embeddinggemma"
 
 ## Default temperature for generation (0.0 = deterministic, 1.0 = creative)
 var temperature: float = 0.7
@@ -45,6 +56,9 @@ var current_response: String = ""
 
 ## True when a request is in flight, false when idle
 var is_generating: bool = false
+
+## Type of current request: "generate", "chat", or "embed"
+var current_request_type: String = ""
 
 func _ready() -> void:
 	"""Initialize the HTTP request node and connect signals.
@@ -125,6 +139,7 @@ func generate(prompt: String, options: Dictionary = {}) -> void:
 
 	is_generating = true
 	current_response = ""
+	current_request_type = "generate"
 
 	var body = {
 		"model": model,
@@ -178,6 +193,7 @@ func chat(messages: Array, options: Dictionary = {}) -> void:
 
 	is_generating = true
 	current_response = ""
+	current_request_type = "chat"
 
 	var body = {
 		"model": model,
@@ -218,39 +234,57 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 		body: Response body as bytes
 
 	Notes:
-		Parses the JSON response and extracts the generated text. Handles both
-		/api/generate format (has "response" key) and /api/chat format (has
-		"message.content" key). Emits generate_finished on success or
-		generate_failed on any error.
+		Routes to appropriate handler based on current_request_type
 	"""
-	print("[OllamaClient] Request completed: result=%d, response_code=%d, body_size=%d" % [result, response_code, body.size()])
+	print("[OllamaClient] Request completed: result=%d, response_code=%d, body_size=%d, type=%s" % [result, response_code, body.size(), current_request_type])
+	var request_type = current_request_type
 	is_generating = false
+	current_request_type = ""
 
 	# Check for network/HTTP errors
 	if result != HTTPRequest.RESULT_SUCCESS:
 		print("[OllamaClient] Request failed with result: %d" % result)
-		generate_failed.emit("Request failed: %s" % result)
+		if request_type == "embed":
+			embed_failed.emit("Request failed: %s" % result)
+		else:
+			generate_failed.emit("Request failed: %s" % result)
 		return
 
 	if response_code != 200:
 		print("[OllamaClient] HTTP error: %d" % response_code)
-		generate_failed.emit("HTTP error: %s" % response_code)
+		if request_type == "embed":
+			embed_failed.emit("HTTP error: %s" % response_code)
+		else:
+			generate_failed.emit("HTTP error: %s" % response_code)
 		return
 
 	# Parse JSON response
 	var json_str = body.get_string_from_utf8()
-	print("[OllamaClient] Received JSON: %s" % json_str.substr(0, 200))  # First 200 chars
+	print("[OllamaClient] Received JSON: %s" % json_str.substr(0, 200))
 	var json = JSON.new()
 	var parse_result = json.parse(json_str)
 
 	if parse_result != OK:
 		print("[OllamaClient] JSON parse error: %s" % json.get_error_message())
-		generate_failed.emit("JSON parse error: %s" % json.get_error_message())
+		if request_type == "embed":
+			embed_failed.emit("JSON parse error: %s" % json.get_error_message())
+		else:
+			generate_failed.emit("JSON parse error: %s" % json.get_error_message())
 		return
 
 	var data = json.data
 
-	# Extract response text based on endpoint format
+	# Route based on request type
+	if request_type == "embed":
+		_on_embed_completed(data)
+	elif request_type == "generate" or request_type == "chat":
+		_on_generate_completed(data)
+	else:
+		print("[OllamaClient] Unknown request type: %s" % request_type)
+
+
+func _on_generate_completed(data: Dictionary) -> void:
+	"""Handle generate/chat endpoint response."""
 	var response_text = ""
 
 	# Check for /api/generate response format
@@ -268,6 +302,54 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 		generate_failed.emit("Unexpected response format")
 		return
 
-	# Success - emit the generated text
 	print("[OllamaClient] Emitting generate_finished with response length: %d" % response_text.length())
 	generate_finished.emit(response_text)
+
+
+func embed(texts: Variant) -> void:
+	"""Generate embeddings using Ollama's /api/embed endpoint.
+
+	Args:
+		texts: String or Array[String] - text(s) to embed
+
+	Notes:
+		Result emitted via embed_finished signal (Array of embedding vectors)
+	"""
+	if is_generating:
+		push_warning("OllamaClient: Already generating, embed request ignored")
+		return
+
+	is_generating = true
+	current_request_type = "embed"
+
+	# Convert single string to array
+	var input: Array = [texts] if texts is String else texts
+
+	var body = {
+		"model": embedding_model,
+		"input": input
+	}
+
+	var json_body = JSON.stringify(body)
+	var headers = ["Content-Type: application/json"]
+
+	var url = host + "/api/embed"
+	print("[OllamaClient] Sending embed request to: %s (model: %s, count: %d)" % [url, embedding_model, input.size()])
+	var err = http_request.request(url, headers, HTTPClient.METHOD_POST, json_body)
+
+	if err != OK:
+		is_generating = false
+		print("[OllamaClient] Failed to send embed request: %s" % err)
+		embed_failed.emit("Failed to send request: %s" % err)
+
+
+func _on_embed_completed(data: Dictionary) -> void:
+	"""Handle embed endpoint response."""
+	if not data.has("embeddings"):
+		print("[OllamaClient] Embed response missing 'embeddings' key")
+		embed_failed.emit("Missing embeddings in response")
+		return
+
+	var embeddings: Array = data.embeddings
+	print("[OllamaClient] Emitting embed_finished with %d embeddings" % embeddings.size())
+	embed_finished.emit(embeddings)

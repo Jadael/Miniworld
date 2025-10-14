@@ -120,6 +120,10 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 			result = _cmd_think(args)
 		"dream":
 			result = _cmd_dream(args)
+		"note":
+			result = _cmd_note(args)
+		"recall":
+			result = _cmd_recall(args)
 		"who":
 			result = _cmd_who(args)
 		"where":
@@ -499,6 +503,79 @@ func _on_dream_complete(insight: String) -> void:
 	command_executed.emit("dream", result, "")
 
 
+func _cmd_note(args: Array) -> Dictionary:
+	"""NOTE command - Create/update a persistent note.
+
+	Syntax: note <title> -> <content>
+
+	Args:
+		args: Array with title and content separated by ->
+
+	Returns:
+		Dictionary with success status and message
+	"""
+	if args.size() == 0:
+		return {"success": false, "message": "Usage: note <title> -> <content>"}
+
+	var full_args: String = " ".join(args)
+	if not "->" in full_args:
+		return {"success": false, "message": "Usage: note <title> -> <content> (arrow required)"}
+
+	var parts: PackedStringArray = full_args.split("->", true, 1)
+	var title: String = parts[0].strip_edges()
+	var content: String = parts[1].strip_edges() if parts.size() > 1 else ""
+
+	if not owner.has_component("memory"):
+		return {"success": false, "message": "You have no memory to write notes."}
+
+	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
+
+	# Add note asynchronously
+	memory_comp.add_note_async(title, content, last_reason, func():
+		print("[Actor] %s completed note: %s" % [owner.name, title])
+	)
+
+	return {
+		"success": true,
+		"message": "Creating note: %s\n(Indexing in background...)" % title
+	}
+
+
+func _cmd_recall(args: Array) -> Dictionary:
+	"""RECALL command - Search notes semantically.
+
+	Args:
+		args: Array of words forming search query
+
+	Returns:
+		Dictionary with success status (async results via signal)
+	"""
+	if args.size() == 0:
+		return {"success": false, "message": "Usage: recall <query>"}
+
+	var query: String = " ".join(args)
+
+	if not owner.has_component("memory"):
+		return {"success": false, "message": "You have no memory to recall from."}
+
+	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
+
+	# Search notes asynchronously
+	memory_comp.recall_notes_async(query, func(result: String):
+		# Emit result as delayed command_executed
+		var delayed_result: Dictionary = {
+			"success": true,
+			"message": result
+		}
+		command_executed.emit("recall", delayed_result, "")
+	)
+
+	return {
+		"success": true,
+		"message": "Searching memories for: %s\n(Processing...)" % query
+	}
+
+
 func observe_event(event: Dictionary) -> void:
 	"""Observe an event happening in this actor's location.
 
@@ -512,8 +589,13 @@ func observe_event(event: Dictionary) -> void:
 		Does not observe own actions since those are already handled
 		through command execution results
 	"""
+	# DEBUG: Print all events before filtering
+	var event_actor_name = event.get("actor").name if event.get("actor") else "none"
+	print("[Actor DEBUG] %s received event from %s: type=%s" % [owner.name, event_actor_name, event.get("type", "unknown")])
+
 	# Don't observe our own actions (already got the command result)
 	if event.get("actor") == owner:
+		print("[Actor DEBUG] %s filtered out own event" % owner.name)
 		return
 
 	print("[ActorComponent] %s observed event: %s" % [owner.name, event.get("text", event.get("message", "unknown event"))])

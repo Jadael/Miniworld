@@ -572,23 +572,26 @@ func _restore_world_state() -> void:
 	"""Restore relationships from world_state.md.
 
 	Parses the world state snapshot to restore:
-	- Character locations
-	- Exit connections
+	- Character locations (from character markdown files)
+	- Exit connections (from location markdown files)
 
 	Notes:
 		Called as third pass during load_world_from_vault()
+		Character locations and exits are stored in individual markdown files,
+		so they can be restored even if world_state.md is missing.
 	"""
 	var state_path: String = MarkdownVault.WORLD_PATH + "/world_state.md"
 	var content: String = MarkdownVault.read_file(state_path)
 
 	if content.is_empty():
-		print("WorldKeeper: No world_state.md found, skipping relationship restoration")
-		return
+		print("WorldKeeper: No world_state.md found, but will still restore locations and exits from individual files")
 
-	# Resolve exit connections for all LocationComponents
+	# ALWAYS resolve exit connections for all LocationComponents
+	# (exits are stored in location markdown files, not world_state.md)
 	_resolve_all_exits()
 
-	# Restore character locations from their markdown frontmatter
+	# ALWAYS restore character locations from their markdown frontmatter
+	# (locations are stored in character markdown files, not world_state.md)
 	_restore_character_locations()
 
 
@@ -644,9 +647,12 @@ func _restore_character_locations() -> void:
 	var room_by_name: Dictionary = {}
 	for room in get_all_rooms():
 		room_by_name[room.name] = room
+		print("[WorldKeeper DEBUG] Room available: %s (ID: %s)" % [room.name, room.id])
 
 	# Restore location for each character with actor component
 	for character in get_objects_with_component("actor"):
+		print("[WorldKeeper DEBUG] Restoring location for: %s (ID: %s)" % [character.name, character.id])
+
 		# Re-read character markdown to get location metadata
 		var filename: String = MarkdownVault.sanitize_filename(character.name) + ".md"
 		var path: String = MarkdownVault.OBJECTS_PATH + "/characters/" + filename
@@ -660,20 +666,24 @@ func _restore_character_locations() -> void:
 		# Parse frontmatter to get location field
 		var parsed: Dictionary = MarkdownVault.parse_frontmatter(content)
 		var location_str: String = parsed.frontmatter.get("location", "")
+		print("[WorldKeeper DEBUG] Location string from file: '%s'" % location_str)
 
 		# Parse [[Room Name]] format
 		if location_str.begins_with("[[") and location_str.ends_with("]]"):
 			var room_name: String = location_str.substr(2, location_str.length() - 4)
+			print("[WorldKeeper DEBUG] Parsed room name: '%s'" % room_name)
 
 			if room_by_name.has(room_name):
 				character.move_to(room_by_name[room_name])
 				print("WorldKeeper: Restored %s to %s" % [character.name, room_name])
 			else:
+				print("[WorldKeeper DEBUG] room_by_name.has('%s') = false" % room_name)
+				print("[WorldKeeper DEBUG] Available rooms: %s" % str(room_by_name.keys()))
 				push_warning("WorldKeeper: Cannot find room '%s' for character %s, defaulting to root_room" % [room_name, character.name])
 				character.move_to(root_room)
 		else:
 			# No valid location specified, use root_room as fallback
-			print("WorldKeeper: No location specified for %s, defaulting to root_room" % character.name)
+			print("WorldKeeper: No location specified for %s (got: '%s'), defaulting to root_room" % [character.name, location_str])
 			character.move_to(root_room)
 
 

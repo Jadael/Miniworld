@@ -145,6 +145,8 @@ func _setup_ollama_client() -> void:
 	add_child(ollama_client)
 	ollama_client.generate_finished.connect(_on_generate_text_finished)
 	ollama_client.generate_failed.connect(_on_generate_failed)
+	ollama_client.embed_finished.connect(_on_embed_finished)
+	ollama_client.embed_failed.connect(_on_embed_failed)
 	print("Shoggoth: Ollama client initialized")
 
 func _initialize_models() -> void:
@@ -522,6 +524,12 @@ func _execute_current_task(options: Dictionary) -> void:
 			return
 		var messages = current_task["messages"] as Array
 		ollama_client.chat(messages, options)
+	elif mode == "embed":
+		if not current_task.has("texts"):
+			_handle_task_error("Embed task missing 'texts' key")
+			return
+		var texts = current_task["texts"]
+		ollama_client.embed(texts)
 	else:
 		if not current_task.has("prompt"):
 			_handle_task_error("Generate task missing 'prompt' key")
@@ -764,6 +772,59 @@ func generate_async(prompt: Variant, system_prompt: String, callback: Callable) 
 		_process_next_task()
 
 	return task_id
+
+
+func generate_embeddings_async(texts: Variant, callback: Callable) -> String:
+	"""Generate embeddings asynchronously with callback.
+
+	Args:
+		texts: String or Array[String] to embed
+		callback: Callable(embeddings: Array) - receives Array of float arrays
+
+	Returns:
+		Task ID or empty string if unavailable
+	"""
+	if ollama_client == null:
+		callback.call([])
+		return ""
+
+	var task_id = str(Time.get_unix_time_from_system()) + "_" + str(randi())
+	var task = {
+		"id": task_id,
+		"texts": texts,
+		"mode": "embed",
+		"parameters": {}
+	}
+	task_queue.append(task)
+	pending_callbacks[task_id] = callback
+
+	if not is_processing_task:
+		_process_next_task()
+
+	return task_id
+
+
+func _on_embed_finished(embeddings: Array) -> void:
+	"""Handle embedding completion from ollama_client."""
+	if current_task.is_empty():
+		return
+
+	var task_id = current_task.get("id", "unknown")
+
+	# Invoke callback
+	if pending_callbacks.has(task_id):
+		var callback: Callable = pending_callbacks[task_id]
+		pending_callbacks.erase(task_id)
+		callback.call(embeddings)
+
+	current_task = {}
+	_process_next_task()
+
+
+func _on_embed_failed(error: String) -> void:
+	"""Handle embedding failure."""
+	print("[Shoggoth] Embedding failed: %s" % error)
+	_handle_task_error("Embedding failed: " + error)
 
 
 func test_connection() -> void:

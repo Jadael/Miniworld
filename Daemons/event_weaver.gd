@@ -181,6 +181,13 @@ func format_event(event: Dictionary) -> String:
 			return event.get("message", "")
 		"movement":
 			return event.get("message", "")
+		"teleport":
+			return event.get("message", "")
 		_:
-			# Fallback for unknown event types
-			return str(event)
+			# Fallback for unknown event types - extract message if available
+			if event.has("message"):
+				return event.get("message", "")
+			elif event.has("text"):
+				return event.get("text", "")
+			else:
+				return str(event)
