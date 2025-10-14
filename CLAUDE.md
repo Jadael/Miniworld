@@ -424,6 +424,152 @@ func _execute_current_task(options: Dictionary) -> void:
 - Keeps command syntax simple while allowing rich internal state
 - Compatible with existing MOO-style command shortcuts (l, ', :)
 
+### Property-Based Configuration System
+
+**Pattern**: Store all runtime-editable configuration as WorldObject properties instead of hardcoded component variables.
+
+**Problem**: Hardcoded profiles, prompts, and settings in component code require code changes to customize agent behavior. This prevents in-game editing and runtime adaptation.
+
+**Solution**: Use WorldObject's property system for all configuration data. Components read properties via getters and write via setters, enabling runtime modification and vault persistence.
+
+**Implementation** (thinker.gd:56-114):
+```gdscript
+# Set properties as defaults during _on_added
+if not owner.has_property("thinker.profile"):
+    owner.set_property("thinker.profile", _deprecated_profile)
+if not owner.has_property("thinker.think_interval"):
+    owner.set_property("thinker.think_interval", _deprecated_think_interval)
+
+# Access via getters/setters
+func get_profile() -> String:
+    if owner and owner.has_property("thinker.profile"):
+        return owner.get_property("thinker.profile")
+    return _deprecated_profile
+
+func set_profile(new_profile: String) -> void:
+    if owner:
+        owner.set_property("thinker.profile", new_profile)
+```
+
+**Benefits**:
+- Properties persist to vault automatically when saved
+- Can be modified at runtime via commands (@edit-profile, @set-profile)
+- AI agents can view and modify their own configuration
+- No code changes needed to customize individual agents
+- Supports per-agent customization of prompts, intervals, etc.
+
+**Property Naming Convention**:
+- Use dot notation: `component.setting` (e.g., `thinker.profile`, `thinker.think_interval`)
+- Makes property ownership clear
+- Prevents naming collisions between components
+- Supports hierarchical organization
+
+**When to Use Properties vs. Variables**:
+- **Properties**: Runtime-editable data, agent-specific configuration, persisted state
+- **Variables**: Transient state, cached values, internal counters
+- **Deprecated Variables**: Keep as fallback for backwards compatibility during migration
+
+### Self-Aware Agent Commands
+
+**Pattern**: Actors can view and modify their own configuration, enabling self-reflection and self-modification.
+
+**Commands**:
+- `@my-profile` - View own personality profile and think interval
+- `@my-description` - View how others see you when examined
+- `@set-profile -> <text>` - Update personality (affects LLM system prompt)
+- `@set-description -> <text>` - Update physical description
+
+**Implementation** (actor.gd:1218-1409):
+```gdscript
+func _cmd_my_profile(_args: Array) -> Dictionary:
+    if not owner.has_component("thinker"):
+        return {"success": false, "message": "No thinker component"}
+
+    var thinker: ThinkerComponent = owner.get_component("thinker")
+    # Display profile and interval...
+
+func _cmd_set_profile(args: Array) -> Dictionary:
+    # Parse args for -> separator
+    # Update thinker.profile property
+    # Save to vault via AIAgent._save_agent_to_vault(owner)
+    # Broadcast observable behavior (others see "pauses in contemplation")
+```
+
+**Key Design Decisions**:
+- **Full Parity**: Players and AI agents have identical access to these commands
+- **Observable Behavior**: Physical changes broadcast events ("adjusts appearance")
+- **Private Content**: Mental changes are private (others don't see new profile text)
+- **Immediate Persistence**: Changes saved to vault automatically
+- **Self-Modification**: Agents can reprogram their own personality
+
+**Benefits**:
+- Enables AI agent self-awareness and introspection
+- Supports emergent agent evolution
+- Players can customize characters without code changes
+- Testing different personalities is trivial
+- Foundation for future self-improving agents
+
+### Help System and Command Metadata
+
+**Pattern**: Centralized command registry with metadata for auto-discovering help system.
+
+**Architecture**:
+1. **CommandMetadata** (command_metadata.gd) - Central registry of all commands
+2. **Help Commands** (actor.gd) - User-facing help interface
+3. **Command Discovery** - Agents can learn their own capabilities
+
+**Command Registry Structure**:
+```gdscript
+const COMMANDS = {
+    "look": {
+        "aliases": ["l"],
+        "category": "social",
+        "syntax": "look",
+        "description": "Observe your current location and who's present",
+        "example": "look"
+    },
+    # ... 29 commands total
+}
+
+const CATEGORIES = {
+    "social": "Interact with others and your environment",
+    "movement": "Navigate through the world",
+    "memory": "Personal notes, recall, and reflection",
+    "self": "Self-awareness and self-modification",
+    "building": "Create and modify world structure",
+    "admin": "Administrative and debugging commands",
+    "query": "Get information about the world and commands"
+}
+```
+
+**Help Commands**:
+- `help` or `?` - Show category overview
+- `help <command>` - Detailed help for specific command (with alias resolution)
+- `help <category>` - List all commands in category
+- `commands` - Compact list of all commands
+
+**AI Agent Integration** (thinker.gd:322-323):
+```gdscript
+command_list = [
+    # ... existing commands ...
+    "help [command|category]: Get help on commands (try 'help social' or 'help say')",
+    "commands: List all available commands"
+]
+```
+
+**Benefits**:
+- Single source of truth for command documentation
+- AI agents can discover their own capabilities
+- Alias resolution automatic (e.g., "help l" shows "look")
+- Easy to maintain as commands are added
+- Supports both player and AI agent learning
+
+**Future Enhancements**:
+- Vault-based help text (editable markdown per-world)
+- True reflection-based discovery (scan for _cmd_* methods)
+- Custom @help annotations in docstrings
+- Dynamic command registration from plugins
+
 ---
 
 ## Development and Testing Workflow

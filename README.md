@@ -36,10 +36,26 @@ who              - List all characters in the world
 
 ### Mental Commands
 ```
-think <thought>          - Record internal reasoning/observations (private)
-dream                    - Review mixed memories for insights (AI-powered)
-note <title> -> <content> - Create persistent notes in personal wiki
-recall <query>           - Search notes semantically for information
+think <thought>            - Record internal reasoning/observations (private)
+dream                      - Review mixed memories for insights (AI-powered)
+note <title> -> <content>  - Create persistent notes in personal wiki
+recall <query>             - Search notes semantically for information
+```
+
+### Self-Awareness Commands
+```
+@my-profile                - View your personality profile and think interval
+@my-description            - View how others see you when examined
+@set-profile -> <text>     - Update your personality (self-modification)
+@set-description -> <text> - Update your physical description
+```
+
+### Help & Discovery
+```
+help or ?                  - Show all command categories and usage
+help <command>             - Detailed help for specific command (e.g., "help say")
+help <category>            - List all commands in category (e.g., "help social")
+commands                   - Compact list of all available commands
 ```
 
 ### World Building
@@ -61,6 +77,10 @@ rooms              - List all rooms in the world
 @tp Eliza
 note Moss Observations -> Contemplative being, likes philosophy
 recall skroderiders
+@my-profile
+@set-profile -> You are now more curious about technology
+help social
+help say
 ```
 
 ## Input Controls
@@ -68,7 +88,7 @@ recall skroderiders
 - **Up/Down Arrows** - Navigate command history
 - **Enter** - Submit command
 - **~** - Open dev console (for debugging/admin)
-- **F1** - Help (planned)
+- **?** or **help** - In-game help system
 
 ## Architecture Highlights
 
@@ -80,9 +100,9 @@ recall skroderiders
 
 ### **Core Components**
 - **LocationComponent** - Makes objects into rooms with exits
-- **ActorComponent** - Enables command execution with optional reasoning
+- **ActorComponent** - Enables command execution with optional reasoning (29 commands)
 - **MemoryComponent** - Automatic event recording with markdown vault persistence
-- **ThinkerComponent** - AI-powered autonomous decision-making for agents
+- **ThinkerComponent** - AI-powered autonomous decision-making with property-based configuration
 - **VectorStoreComponent** - Semantic search and note-taking capabilities
 
 ### **Daemons (Singletons)**
@@ -96,10 +116,11 @@ recall skroderiders
 Core/
 ├── world_object.gd         # Base class for everything
 ├── ai_agent.gd             # Helper class for creating AI agents
+├── command_metadata.gd     # Command registry for help system
 └── components/             # Capability components
     ├── component_base.gd   # Base class for all components
     ├── location.gd         # Rooms and exits
-    ├── actor.gd            # Command execution
+    ├── actor.gd            # Command execution (29 commands)
     ├── memory.gd           # Event recording and notes
     ├── thinker.gd          # AI decision-making
     └── vector_store.gd     # Semantic search
@@ -161,14 +182,23 @@ AI agents use the **ThinkerComponent** with **just-in-time prompt generation** t
 - World persistence to markdown files (@save)
 - Debug tools (@impersonate to view AI perspective)
 - Console integration for debugging
+- Observer messages for "private" verbs (think, dream, note, recall)
+- **Property-based configuration system** (runtime-editable agent settings)
+- **Self-awareness commands** (@my-profile, @set-profile, @my-description, @set-description)
+- **Auto-discovering help system** (help, commands, 7 categories, 29 commands)
+- **Command metadata registry** (centralized documentation)
+- **AI agent self-discovery** (agents can learn their own capabilities via help)
 
 ⏳ **In Progress:**
-- Observer messages for "private" verbs (think, dream, note, recall)
 - Improved AI behavior patterns to reduce repetition
 
 🔮 **Future Ideas:**
 - Visual room display (Palace-style or isometric)
-- In-game scripting language for custom object behaviors
+- In-game scripting language for custom object behaviors (Skrode component)
+- Vault-based help text (editable markdown documentation per-world)
+- AI-driven self-modification (agents optimize their own profiles based on outcomes)
+- Profile evolution tracking (view history of agent personality changes)
+- Template-based personality system (reusable agent profiles)
 - Multiplayer networking
 - Permission system (ownership, private rooms)
 - More sophisticated AI goal/planning systems
@@ -183,6 +213,9 @@ AI agents use the **ThinkerComponent** with **just-in-time prompt generation** t
 - **`CLAUDE.md`** - Development standards and patterns for contributors
 - **`VAULT_STRUCTURE.md`** - Markdown vault persistence format
 - **`PERSISTENCE_IMPLEMENTATION.md`** - Technical details of save/load system
+- **`HELP_SYSTEM_DESIGN.md`** - Help system architecture and future enhancements
+- **`MVP_SELF_AWARENESS.md`** - Self-awareness and self-modification system documentation
+- **`IMPLEMENTATION_NOTES.md`** - Property-based configuration implementation details
 
 ## Python Prototype
 
@@ -198,6 +231,9 @@ The `Python prototype/` folder contains the original implementation this Godot v
 **Just-in-Time Context** - AI agents get fresh prompts with latest memories
 **Persistent World** - Everything saved to readable markdown files
 **Player-Built Worlds** - Everyone can shape the world with building commands
+**Runtime Configuration** - All settings editable in-game via properties system
+**Self-Aware Agents** - AI can view and modify their own configuration
+**Discoverable Systems** - In-game help enables learning without external docs
 
 ## UI Features
 
