@@ -37,6 +37,8 @@ All components inherit from ComponentBase and follow this lifecycle:
 - Implements just-in-time prompt generation (builds fresh context when LLM ready)
 - Queues tasks with Shoggoth daemon for async LLM inference
 - Executes decided commands through ActorComponent
+- Broadcasts observable thinking behavior ("pauses, deep in thought...") just-in-time when prompt generation begins
+- Broadcasting happens at the last moment so agent sees all events until they "zone out"
 
 ### MemoryComponent
 - Records observations as timestamped entries

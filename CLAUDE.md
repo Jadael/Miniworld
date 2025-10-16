@@ -426,6 +426,69 @@ func _execute_current_task(options: Dictionary) -> void:
 - Prompts that are expensive to generate (cache them instead)
 - Simple text generation that doesn't need world context
 
+### Observable Thinking Behavior (Just-in-Time Broadcasting)
+
+**Pattern**: Broadcast agent thinking behavior at the exact moment prompt generation begins, not when queued.
+
+**Problem**: If an agent broadcasts "pauses, deep in thought..." when they queue their LLM request, other agents waiting in the queue will see that message and include it in their own prompts. This creates stale context - the agent appears to be thinking *before* they actually start generating their prompt.
+
+**Solution**: Embed the broadcast call inside the prompt generator Callable, so it executes just-in-time when Shoggoth is about to invoke the generator. This ensures the agent sees all events up until the moment they actually "zone out".
+
+**Implementation** (thinker.gd:162-174):
+```gdscript
+# Pass a callable that:
+# 1. Broadcasts thinking behavior (at the last moment before context is built)
+# 2. Builds the prompt fresh when Shoggoth is ready to execute
+var prompt_generator: Callable = func() -> String:
+	# This runs just-in-time when Shoggoth is ready - broadcast NOW
+	var current_location: WorldObject = owner.get_location()
+	_broadcast_thinking_behavior(current_location)
+
+	# Now build fresh context and prompt
+	var fresh_context: Dictionary = _build_context()
+	return _construct_prompt(fresh_context)
+
+Shoggoth.generate_async(prompt_generator, get_profile(), Callable(self, "_on_thought_complete"))
+```
+
+**Broadcast Implementation** (thinker.gd:394-420):
+```gdscript
+func _broadcast_thinking_behavior(location: WorldObject) -> void:
+	"""Broadcast observable thinking behavior to location occupants."""
+	if not EventWeaver:
+		return
+
+	var thinking_msg: String = "%s pauses, deep in thought..." % owner.name
+
+	EventWeaver.broadcast_to_location(location, {
+		"type": "observation",
+		"actor": owner,
+		"message": thinking_msg,
+		"timestamp": Time.get_ticks_msec()
+	})
+```
+
+**Timeline**:
+1. Agent's think timer expires → `_think()` called
+2. Task queued with Shoggoth → agent continues observing events
+3. **Other agents take their turns** → queued agent sees their actions
+4. Shoggoth ready to execute task → invokes prompt generator
+5. **Broadcast "pauses, deep in thought..."** → observers see agent zone out
+6. Build context and prompt → includes everything up to this moment
+7. Send to LLM → agent is now truly "thinking"
+
+**Benefits**:
+- Agent context includes events that happened while waiting in queue
+- Observers see thinking behavior at the correct moment
+- No stale "is thinking" messages in prompts
+- Accurate turn-taking visualization
+- Maintains just-in-time prompt freshness
+
+**When to Use**:
+- Any observable behavior that should happen at prompt-generation time
+- Events that mark the boundary between "observing" and "processing"
+- Side effects that should occur just before LLM inference
+
 ### MOO-Style Command Syntax with Reasoning
 
 **Pattern**: Both players and AI agents use unified MOO-style command syntax with optional reasoning.

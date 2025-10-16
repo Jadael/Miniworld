@@ -10,6 +10,7 @@
 ## - Shoggoth: AI/LLM interface daemon for inference
 ## - ActorComponent: Required to execute decided actions
 ## - MemoryComponent: Optional, provides context from past observations
+## - EventWeaver: Used to broadcast observable thinking behavior
 ##
 ## Notes:
 ## - Think interval can be adjusted per-agent for different behaviors
@@ -17,6 +18,8 @@
 ## - Processes autonomously via process() method, not frame-based
 ## - Uses MOO-style command syntax: "command args | reason" where | is optional
 ## - Reasoning after | is private (stored in memory, not visible to others)
+## - Broadcasts "pauses, deep in thought..." just-in-time when prompt is built (visible to others)
+## - Broadcasting happens at the last moment so agent sees all events until they "zone out"
 
 extends ComponentBase
 class_name ThinkerComponent
@@ -141,6 +144,10 @@ func _think() -> void:
 	This ensures the agent has the most up-to-date memories and observations.
 
 	Falls back to simple behavior if LLM is unavailable.
+
+	The prompt generator callable broadcasts observable "pondering" behavior
+	at the last possible moment (just before building context), ensuring the
+	agent sees all events up until they actually "zone out" to think.
 	"""
 	is_thinking = true
 
@@ -155,8 +162,15 @@ func _think() -> void:
 	if Shoggoth and Shoggoth.ollama_client:
 		print("[Thinker] %s queuing LLM request..." % owner.name)
 
-		# Pass a callable that builds the prompt fresh when Shoggoth is ready to execute
+		# Pass a callable that:
+		# 1. Broadcasts thinking behavior (at the last moment before context is built)
+		# 2. Builds the prompt fresh when Shoggoth is ready to execute
 		var prompt_generator: Callable = func() -> String:
+			# This runs just-in-time when Shoggoth is ready - broadcast NOW
+			var current_location: WorldObject = owner.get_location()
+			_broadcast_thinking_behavior(current_location)
+
+			# Now build fresh context and prompt
 			var fresh_context: Dictionary = _build_context()
 			return _construct_prompt(fresh_context)
 
@@ -382,6 +396,35 @@ func _on_thought_complete(response: String) -> void:
 
 			actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
 			thought_completed.emit(command_line, parsed.reason)
+
+
+func _broadcast_thinking_behavior(location: WorldObject) -> void:
+	"""Broadcast observable thinking behavior to location occupants.
+
+	Emits a subtle event indicating the agent is pondering/contemplating,
+	making the async thinking process visible to other observers without
+	being too spammy.
+
+	Args:
+		location: The WorldObject where the agent is located
+
+	Notes:
+		Uses EventWeaver.broadcast_to_location() to notify all actors present.
+		Message is contextual - varies based on agent name/type.
+	"""
+	if not EventWeaver:
+		return
+
+	# Construct observable message
+	var thinking_msg: String = "%s pauses, deep in thought..." % owner.name
+
+	# Broadcast to location (others will see this)
+	EventWeaver.broadcast_to_location(location, {
+		"type": "observation",
+		"actor": owner,
+		"message": thinking_msg,
+		"timestamp": Time.get_ticks_msec()
+	})
 
 
 func _fallback_behavior() -> void:

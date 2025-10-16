@@ -4,7 +4,8 @@
       "Bash(mkdir:*)",
       "Read(//c/Users/hillh/AppData/Roaming/Godot/app_userdata/Miniworld/**)",
       "Bash(cat:*)",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": []
