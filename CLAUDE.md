@@ -256,6 +256,7 @@ After completing documentation work:
 - **Shoggoth**: AI/LLM interface daemon, abstracts inference backends
 - **WorldKeeper**: Object registry and lifecycle manager
 - **EventWeaver**: Event propagation and observation system
+- **TextManager**: Vault-based text and configuration registry
 - **Ollama**: LLM backend (currently using Ollama API)
 
 **Follow these conventions:**
@@ -816,6 +817,141 @@ static func matches_prep_spec(found_prep: String, spec: String) -> bool
 - Object ambiguity: proper #-2 return when multiple matches
 - Alias matching: both exact and prefix work correctly
 - Wildcard verbs: all three forms (* mid-star, end-star, no-star)
+
+### Vault-Based Text Management (TextManager Pattern)
+
+**Pattern**: All user-facing text and configuration stored in vault markdown files, editable in-game and hot-reloadable.
+
+**Problem**: Hardcoded strings and settings require code changes to customize. Players and world builders need to personalize messages, prompts, and system behavior without touching code.
+
+**Solution**: TextManager daemon loads all text and config from `user://vault/` markdown files with variable substitution, graceful fallbacks, and in-game admin commands.
+
+**Architecture**:
+1. **TextManager Daemon** (Daemons/text_manager.gd) - Singleton text/config registry
+2. **Vault Structure** - Organized markdown files in `user://vault/text/` and `user://vault/config/`
+3. **Auto-Migration** - Copies defaults from `res://vault/` to `user://vault/` on first run
+4. **Variable Substitution** - Template strings with `{placeholder}` syntax
+5. **Hot-Reloading** - Runtime refresh via `@reload-text` command
+
+**Vault Structure**:
+```
+user://vault/
+├── text/
+│   ├── commands/
+│   │   ├── social.md       # say, emote, examine, look
+│   │   ├── movement.md     # go, exits
+│   │   ├── memory.md       # think, dream, note, recall
+│   │   ├── building.md     # dig, create-exit
+│   │   ├── admin.md        # @commands
+│   │   ├── self.md         # @my-profile, @set-profile
+│   │   └── query.md        # who, where, rooms
+│   └── behaviors/
+│       └── actions.md      # Observable behavior templates
+├── config/
+│   ├── ai_defaults.md      # Default AI settings
+│   ├── shoggoth.md         # LLM configuration
+│   └── memory_defaults.md  # Memory system settings
+└── README.md               # User-facing documentation
+```
+
+**Markdown Format**:
+```markdown
+# Command Messages
+
+## verb_name
+**message_key**: Message text with {variable} substitution
+**another_key**: Another message variant
+
+## another_verb
+**success**: You {action} the {target}.
+**failure**: You can't {action} that.
+```
+
+**Implementation** (actor.gd command example):
+```gdscript
+func _cmd_say(args: Array) -> Dictionary:
+	if args.size() == 0:
+		return {"success": false, "message": TextManager.get_text("commands.social.say.missing_arg")}
+
+	var message: String = " ".join(args)
+
+	# Broadcast observable behavior
+	var behavior := TextManager.get_text("commands.social.say.behavior", {
+		"actor": owner.name,
+		"text": message
+	})
+	EventWeaver.broadcast_to_location(current_location, {...})
+
+	# Return player-visible result
+	return {
+		"success": true,
+		"message": TextManager.get_text("commands.social.say.success", {"text": message})
+	}
+```
+
+**TextManager API**:
+```gdscript
+# Get text with variable substitution
+TextManager.get_text(key: String, vars: Dictionary = {}) -> String
+
+# Get config value with type inference
+TextManager.get_config(key: String, default: Variant = null) -> Variant
+
+# Format template with variables
+TextManager.format_text(template: String, vars: Dictionary) -> String
+
+# Hot-reload from vault
+TextManager.reload() -> void
+```
+
+**Admin Commands**:
+- `@reload-text` - Hot-reload all text and config from vault
+- `@show-text <key>` - Inspect text entry with available variables
+- `@show-config <key>` - Inspect config value and type
+
+**Key Patterns**:
+- **Dot Notation Keys**: `"commands.category.verb.message_type"` (e.g., `"commands.social.say.success"`)
+- **Behavior Separation**: Observable behaviors in `behaviors/actions.md` separate from command results
+- **Variable Naming**: Use `{actor}`, `{text}`, `{target}`, `{exit}`, `{destination}`, etc. consistently
+- **Graceful Fallback**: Inline defaults in code if vault files missing
+- **Obsidian Compatible**: Markdown format for external editing in vault viewers
+
+**Auto-Migration Pattern**:
+```gdscript
+func _ensure_vault_structure() -> void:
+	DirAccess.make_dir_recursive_absolute("user://vault/text/commands")
+	DirAccess.make_dir_recursive_absolute("user://vault/config")
+
+	# Copy defaults from res://vault/ to user://vault/ if missing
+	_copy_default_file_if_missing("res://vault/text/commands/social.md", "user://vault/text/commands/social.md")
+	# ... repeat for all default files
+
+func _copy_default_file_if_missing(source_path: String, dest_path: String) -> void:
+	if not FileAccess.file_exists(dest_path) and FileAccess.file_exists(source_path):
+		# Copy file from res:// to user://
+		# Never overwrite existing user customizations
+```
+
+**Benefits**:
+- **In-Game Editing**: World builders customize all text without code changes
+- **Hot-Reloadable**: Changes take effect immediately via `@reload-text`
+- **Obsidian Integration**: Vault files editable in external markdown tools
+- **Player Customization**: Different worlds can have unique voice/tone
+- **AI Agent Context**: Text templates appear in agent prompts when commands execute
+- **Localization Ready**: Foundation for multi-language support
+- **Version Controlled Defaults**: `res://vault/` contains project defaults
+
+**When to Use**:
+- ALL user-facing text (command results, error messages, system prompts)
+- ALL configuration values (think intervals, memory settings, LLM parameters)
+- Observable behavior templates (how actions appear to others)
+- World-specific customizations that should persist with vault
+
+**When NOT to Use**:
+- Debug/log messages (code-level diagnostics)
+- Internal variable names or identifiers
+- Code structure or algorithm logic
+- Transient UI labels (handled by Godot scenes)
 
 ---
 

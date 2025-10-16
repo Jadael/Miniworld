@@ -29,8 +29,27 @@ All components inherit from ComponentBase and follow this lifecycle:
 ### ActorComponent
 - Executes commands via `execute_command(verb, args, reason)`
 - Dispatches to `_cmd_*()` methods (e.g., `_cmd_look()`, `_cmd_say()`)
+- All `_cmd_*()` methods use TextManager for user-facing text
 - Observes events via EventWeaver subscription
 - Stores last command result and reasoning for inspection
+
+**TextManager Integration**:
+```gdscript
+func _cmd_say(args: Array) -> Dictionary:
+	if args.size() == 0:
+		return {"success": false, "message": TextManager.get_text("commands.social.say.missing_arg")}
+
+	var message: String = " ".join(args)
+	var behavior := TextManager.get_text("commands.social.say.behavior", {
+		"actor": owner.name,
+		"text": message
+	})
+	EventWeaver.broadcast_to_location(current_location, {...})
+
+	return {"success": true, "message": TextManager.get_text("commands.social.say.success", {"text": message})}
+```
+
+All command messages are loaded from `user://vault/text/commands/*.md` and can be edited in-game using admin commands (`@reload-text`, `@show-text`)
 
 ### ThinkerComponent
 - Uses property-based configuration (`thinker.profile`, `thinker.think_interval`)

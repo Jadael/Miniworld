@@ -6,6 +6,7 @@ Daemons are autoloaded singleton managers that provide global services to the Mi
 ## Contents
 
 ### Core Daemons
+- **text_manager.gd** - Vault-based text and configuration registry, loads all strings and settings from user vault
 - **world_keeper.gd** - Object registry and lifecycle manager, maintains ID→WorldObject mapping
 - **event_weaver.gd** - Event propagation and observation system, broadcasts events to interested observers
 - **shoggoth.gd** - AI/LLM interface daemon, manages Ollama client and task queue for async inference
@@ -13,6 +14,31 @@ Daemons are autoloaded singleton managers that provide global services to the Mi
 - **ollama_client.gd** - HTTP client for Ollama API, handles streaming responses and embeddings
 
 ## Daemon Responsibilities
+
+### TextManager
+**Purpose**: Central registry for all in-game text and configuration
+
+**Key Functions**:
+- `get_text(key, vars)` - Retrieve text with variable substitution (e.g., "{actor} says, \"{text}\"")
+- `get_config(key, default)` - Retrieve configuration value with fallback
+- `format_text(template, vars)` - Apply variable substitution to template
+- `reload()` - Hot-reload all text/config from vault without restart
+
+**Vault Structure**:
+- `user://vault/text/commands/*.md` - Command messages (social, movement, memory, building, admin, etc.)
+- `user://vault/text/behaviors/*.md` - Observable action templates
+- `user://vault/config/*.md` - System configuration (AI, LLM, memory settings)
+
+**Pattern**:
+- On first run, copies defaults from `res://vault/` to `user://vault/`
+- User customizations are never overwritten
+- Fallback to inline defaults if vault files missing
+- Markdown format: `**key**: value` with `{variable}` substitution
+
+**Admin Commands**:
+- `@reload-text` - Hot-reload vault changes
+- `@show-text <key>` - Inspect text entry
+- `@show-config <key>` - Inspect config value
 
 ### WorldKeeper
 **Purpose**: Single source of truth for all WorldObjects in existence

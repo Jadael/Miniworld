@@ -172,6 +172,12 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 			result = _cmd_help(args)
 		"commands":
 			result = _cmd_commands(args)
+		"@reload-text":
+			result = _cmd_reload_text(args)
+		"@show-text":
+			result = _cmd_show_text(args)
+		"@show-config":
+			result = _cmd_show_config(args)
 		_:
 			result = {"success": false, "message": "Unknown command: %s\nTry 'help' for available commands." % command}
 
@@ -205,7 +211,7 @@ func _cmd_look(_args: Array) -> Dictionary:
 		- location (WorldObject): The location object being observed
 	"""
 	if current_location == null:
-		return {"success": false, "message": "You are nowhere."}
+		return {"success": false, "message": TextManager.get_text("commands.social.look.no_location")}
 
 	var desc: String = current_location.get_description()
 
@@ -215,11 +221,12 @@ func _cmd_look(_args: Array) -> Dictionary:
 		desc += "\n\n" + location_comp.get_contents_description()
 
 	# Notify other actors in location
+	var behavior := TextManager.get_text("behaviors.actions.look", {"actor": owner.name})
 	EventWeaver.broadcast_to_location(current_location, {
 		"type": "action",
 		"actor": owner,
 		"action": "looks around",
-		"message": "%s looks around." % owner.name
+		"message": behavior
 	})
 
 	return {
@@ -246,29 +253,30 @@ func _cmd_go(args: Array) -> Dictionary:
 		- location (WorldObject): The destination location (on success)
 	"""
 	if args.size() == 0:
-		return {"success": false, "message": "Go where?"}
+		return {"success": false, "message": TextManager.get_text("commands.movement.go.missing_arg")}
 
 	if current_location == null:
-		return {"success": false, "message": "You are nowhere."}
+		return {"success": false, "message": TextManager.get_text("commands.movement.go.no_location")}
 
 	var exit_name: String = args[0]
 
 	# Verify location has location component with exits
 	var location_comp = current_location.get_component("location")
 	if location_comp == null:
-		return {"success": false, "message": "This location has no exits."}
+		return {"success": false, "message": TextManager.get_text("commands.movement.go.no_exits")}
 
 	var destination: WorldObject = location_comp.get_exit(exit_name)
 	if destination == null:
-		return {"success": false, "message": "There is no exit '%s' here." % exit_name}
+		return {"success": false, "message": TextManager.get_text("commands.movement.go.no_exit", {"exit": exit_name})}
 
 	# Broadcast departure event to old location
+	var departure_msg := TextManager.get_text("commands.movement.go.departure", {"actor": owner.name, "destination": destination.name})
 	EventWeaver.broadcast_to_location(current_location, {
 		"type": "movement",
 		"actor": owner,
 		"action": "leaves",
 		"destination": destination,
-		"message": "%s leaves to %s." % [owner.name, destination.name]
+		"message": departure_msg
 	})
 
 	# Store old location name before moving (current_location will change after move_to)
@@ -279,12 +287,13 @@ func _cmd_go(args: Array) -> Dictionary:
 	_update_location()
 
 	# Broadcast arrival event to new location
+	var arrival_msg := TextManager.get_text("commands.movement.go.arrival", {"actor": owner.name, "origin": prior_location_name})
 	EventWeaver.broadcast_to_location(current_location, {
 		"type": "movement",
 		"actor": owner,
 		"action": "arrives",
 		"destination": destination,
-		"message": "%s arrives from %s." % [owner.name, prior_location_name]
+		"message": arrival_msg
 	})
 
 	# Automatically look at the new location
@@ -305,21 +314,22 @@ func _cmd_say(args: Array) -> Dictionary:
 		- message (String): Confirmation of what was said
 	"""
 	if args.size() == 0:
-		return {"success": false, "message": "Say what?"}
+		return {"success": false, "message": TextManager.get_text("commands.social.say.missing_arg")}
 
 	var message: String = " ".join(args)
 
 	# Broadcast speech event to location
+	var behavior := TextManager.get_text("commands.social.say.behavior", {"actor": owner.name, "text": message})
 	EventWeaver.broadcast_to_location(current_location, {
 		"type": "speech",
 		"actor": owner,
 		"message": message,
-		"text": "%s says, \"%s\"" % [owner.name, message]
+		"text": behavior
 	})
 
 	return {
 		"success": true,
-		"message": "You say, \"%s\"" % message
+		"message": TextManager.get_text("commands.social.say.success", {"text": message})
 	}
 
 
@@ -338,21 +348,22 @@ func _cmd_emote(args: Array) -> Dictionary:
 		- message (String): The formatted emote text
 	"""
 	if args.size() == 0:
-		return {"success": false, "message": "Emote what?"}
+		return {"success": false, "message": TextManager.get_text("commands.social.emote.missing_arg")}
 
 	var action: String = " ".join(args)
 
 	# Broadcast emote event to location
+	var behavior := TextManager.get_text("commands.social.emote.behavior", {"actor": owner.name, "text": action})
 	EventWeaver.broadcast_to_location(current_location, {
 		"type": "emote",
 		"actor": owner,
 		"action": action,
-		"text": "%s %s" % [owner.name, action]
+		"text": behavior
 	})
 
 	return {
 		"success": true,
-		"message": "%s %s" % [owner.name, action]
+		"message": behavior
 	}
 
 
@@ -372,7 +383,7 @@ func _cmd_examine(args: Array) -> Dictionary:
 		- target (WorldObject): The examined object (on success)
 	"""
 	if args.size() == 0:
-		return {"success": false, "message": "Examine what?"}
+		return {"success": false, "message": TextManager.get_text("commands.social.examine.missing_arg")}
 
 	var target_name: String = args[0]
 
@@ -380,15 +391,16 @@ func _cmd_examine(args: Array) -> Dictionary:
 	var target: WorldObject = WorldKeeper.find_object_by_name(target_name, current_location)
 
 	if target == null:
-		return {"success": false, "message": "You don't see '%s' here." % target_name}
+		return {"success": false, "message": TextManager.get_text("commands.social.examine.not_found", {"target": target_name})}
 
 	# Broadcast examine action to observers
+	var behavior := TextManager.get_text("commands.social.examine.behavior", {"actor": owner.name, "target": target.name})
 	EventWeaver.broadcast_to_location(current_location, {
 		"type": "action",
 		"actor": owner,
 		"target": target,
 		"action": "examines",
-		"message": "%s examines %s." % [owner.name, target.name]
+		"message": behavior
 	})
 
 	return {
@@ -422,7 +434,7 @@ func _cmd_think(args: Array) -> Dictionary:
 		record action-specific reasoning.
 	"""
 	if args.size() == 0:
-		return {"success": false, "message": "Think what?"}
+		return {"success": false, "message": TextManager.get_text("commands.memory.think.missing_arg")}
 
 	var thought: String = " ".join(args)
 
@@ -433,16 +445,17 @@ func _cmd_think(args: Array) -> Dictionary:
 
 	# Broadcast observable behavior (but not the thought content)
 	if current_location:
+		var behavior := TextManager.get_text("behaviors.actions.think", {"actor": owner.name})
 		EventWeaver.broadcast_to_location(current_location, {
 			"type": "action",
 			"actor": owner,
 			"action": "pauses in thought",
-			"message": "%s pauses in thought." % owner.name
+			"message": behavior
 		})
 
 	return {
 		"success": true,
-		"message": "You think: %s" % thought
+		"message": TextManager.get_text("commands.memory.think.success", {"thought": thought})
 	}
 
 
@@ -470,10 +483,10 @@ func _cmd_dream(_args: Array) -> Dictionary:
 		the dream insight appears as a follow-up message.
 	"""
 	if not owner.has_component("memory"):
-		return {"success": false, "message": "You have no memory to dream about."}
+		return {"success": false, "message": TextManager.get_text("commands.memory.dream.no_memory")}
 
 	if not Shoggoth or not Shoggoth.ollama_client:
-		return {"success": false, "message": "Dream analysis requires LLM connection."}
+		return {"success": false, "message": TextManager.get_text("commands.memory.dream.no_llm")}
 
 	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
 
@@ -482,7 +495,7 @@ func _cmd_dream(_args: Array) -> Dictionary:
 	var random: Array[Dictionary] = memory_comp.get_random_memories(5)
 
 	if recent.size() == 0 and random.size() == 0:
-		return {"success": false, "message": "You have no memories to dream about."}
+		return {"success": false, "message": TextManager.get_text("commands.memory.dream.no_memories")}
 
 	# Combine and shuffle to create dream-like jumble
 	var dream_memories: Array[Dictionary] = []
@@ -505,11 +518,12 @@ func _cmd_dream(_args: Array) -> Dictionary:
 
 	# Broadcast observable behavior (entering dream state)
 	if current_location:
+		var behavior := TextManager.get_text("behaviors.actions.dream", {"actor": owner.name})
 		EventWeaver.broadcast_to_location(current_location, {
 			"type": "action",
 			"actor": owner,
 			"action": "becomes still, eyes unfocused",
-			"message": "%s becomes still, eyes unfocused, lost in thought." % owner.name
+			"message": behavior
 		})
 
 	# Request LLM analysis asynchronously
@@ -521,7 +535,7 @@ func _cmd_dream(_args: Array) -> Dictionary:
 
 	return {
 		"success": true,
-		"message": "You drift into a dream state, memories swirling together..."
+		"message": TextManager.get_text("commands.memory.dream.starting")
 	}
 
 
@@ -569,28 +583,29 @@ func _cmd_note(args: Array) -> Dictionary:
 		Dictionary with success status and message
 	"""
 	if args.size() == 0:
-		return {"success": false, "message": "Usage: note <title> -> <content>"}
+		return {"success": false, "message": TextManager.get_text("commands.memory.note.missing_arg")}
 
 	var full_args: String = " ".join(args)
 	if not "->" in full_args:
-		return {"success": false, "message": "Usage: note <title> -> <content> (arrow required)"}
+		return {"success": false, "message": TextManager.get_text("commands.memory.note.no_arrow")}
 
 	var parts: PackedStringArray = full_args.split("->", true, 1)
 	var title: String = parts[0].strip_edges()
 	var content: String = parts[1].strip_edges() if parts.size() > 1 else ""
 
 	if not owner.has_component("memory"):
-		return {"success": false, "message": "You have no memory to write notes."}
+		return {"success": false, "message": TextManager.get_text("commands.memory.note.no_memory_component")}
 
 	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
 
 	# Broadcast observable behavior (writing)
 	if current_location:
+		var behavior := TextManager.get_text("behaviors.actions.note", {"actor": owner.name})
 		EventWeaver.broadcast_to_location(current_location, {
 			"type": "action",
 			"actor": owner,
 			"action": "jots something down",
-			"message": "%s jots something down." % owner.name
+			"message": behavior
 		})
 
 	# Add note asynchronously
@@ -600,7 +615,7 @@ func _cmd_note(args: Array) -> Dictionary:
 
 	return {
 		"success": true,
-		"message": "Creating note: %s\n(Indexing in background...)" % title
+		"message": TextManager.get_text("commands.memory.note.success", {"title": title})
 	}
 
 
@@ -619,28 +634,29 @@ func _cmd_overwrite_note(args: Array) -> Dictionary:
 		Dictionary with success status and message
 	"""
 	if args.size() == 0:
-		return {"success": false, "message": "Usage: @overwrite-note <title> -> <content>"}
+		return {"success": false, "message": TextManager.get_text("commands.memory.overwrite_note.missing_arg")}
 
 	var full_args: String = " ".join(args)
 	if not "->" in full_args:
-		return {"success": false, "message": "Usage: @overwrite-note <title> -> <content> (arrow required)"}
+		return {"success": false, "message": TextManager.get_text("commands.memory.overwrite_note.no_arrow")}
 
 	var parts: PackedStringArray = full_args.split("->", true, 1)
 	var title: String = parts[0].strip_edges()
 	var content: String = parts[1].strip_edges() if parts.size() > 1 else ""
 
 	if not owner.has_component("memory"):
-		return {"success": false, "message": "You have no memory to write notes."}
+		return {"success": false, "message": TextManager.get_text("commands.memory.overwrite_note.no_memory_component")}
 
 	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
 
 	# Broadcast observable behavior (writing)
 	if current_location:
+		var behavior := TextManager.get_text("behaviors.actions.note", {"actor": owner.name})
 		EventWeaver.broadcast_to_location(current_location, {
 			"type": "action",
 			"actor": owner,
 			"action": "jots something down",
-			"message": "%s jots something down." % owner.name
+			"message": behavior
 		})
 
 	# Add note asynchronously with append_mode=false to overwrite
@@ -650,7 +666,7 @@ func _cmd_overwrite_note(args: Array) -> Dictionary:
 
 	return {
 		"success": true,
-		"message": "Overwriting note: %s\n(Indexing in background...)" % title
+		"message": TextManager.get_text("commands.memory.overwrite_note.success", {"title": title})
 	}
 
 
@@ -672,18 +688,19 @@ func _cmd_recall(args: Array) -> Dictionary:
 		Dictionary with success status and immediate results
 	"""
 	if not owner.has_component("memory"):
-		return {"success": false, "message": "You have no memory to recall from."}
+		return {"success": false, "message": TextManager.get_text("commands.memory.recall.no_memory_component")}
 
 	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
 	var query: String = " ".join(args) if args.size() > 0 else ""
 
 	# Broadcast observable behavior (brief pause to think)
 	if current_location:
+		var behavior := TextManager.get_text("behaviors.actions.recall", {"actor": owner.name})
 		EventWeaver.broadcast_to_location(current_location, {
 			"type": "action",
 			"actor": owner,
 			"action": "pauses to recall",
-			"message": "%s pauses to recall..." % owner.name
+			"message": behavior
 		})
 
 	# Get instant results (no async required)
@@ -1615,3 +1632,103 @@ func _cmd_commands(_args: Array) -> Dictionary:
 	text += "\nUse 'help <command>' for details on any command.\n"
 
 	return {"success": true, "message": text}
+
+
+func _cmd_reload_text(_args: Array) -> Dictionary:
+	"""@RELOAD-TEXT command - Hot-reload all text and config from vault (admin command).
+
+	Reloads all text strings and configuration values from vault files
+	without restarting the game. Useful for testing text changes.
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): Always true
+		- message (String): Confirmation with entry counts
+
+	Notes:
+		This is an admin command for development and customization
+	"""
+	TextManager.reload()
+
+	return {
+		"success": true,
+		"message": "Text and config reloaded from vault!\n\nText entries: %d\nConfig entries: %d\n\nChanges are now active." % [TextManager._text_data.size(), TextManager._config_data.size()]
+	}
+
+
+func _cmd_show_text(args: Array) -> Dictionary:
+	"""@SHOW-TEXT command - Display a text entry from the vault (admin command).
+
+	Shows the current value of a text key and available variables.
+
+	Syntax: @show-text <key>
+
+	Args:
+		args: Array with text key as first element
+
+	Returns:
+		Dictionary with success status and text value
+
+	Notes:
+		This is an admin command for inspecting text values
+	"""
+	if args.size() == 0:
+		return {"success": false, "message": "Usage: @show-text <key>\n\nExample: @show-text commands.social.say.success"}
+
+	var key: String = args[0]
+	var value: String = TextManager.get_text(key)
+
+	if value.is_empty():
+		return {"success": false, "message": "Text key not found: %s\n\nCheck vault files or use inline fallback." % key}
+
+	var message: String = "═══ Text Entry ═══\n\n"
+	message += "Key: %s\n" % key
+	message += "Value: %s\n\n" % value
+
+	# Show available variables
+	if "{" in value:
+		message += "Variables: "
+		var vars := []
+		var regex := RegEx.new()
+		regex.compile("\\{([^}]+)\\}")
+		for match in regex.search_all(value):
+			vars.append(match.get_string(1))
+		message += ", ".join(vars) + "\n"
+
+	return {"success": true, "message": message}
+
+
+func _cmd_show_config(args: Array) -> Dictionary:
+	"""@SHOW-CONFIG command - Display a config value from the vault (admin command).
+
+	Shows the current value and type of a configuration entry.
+
+	Syntax: @show-config <key>
+
+	Args:
+		args: Array with config key as first element
+
+	Returns:
+		Dictionary with success status and config value
+
+	Notes:
+		This is an admin command for inspecting configuration
+	"""
+	if args.size() == 0:
+		return {"success": false, "message": "Usage: @show-config <key>\n\nExample: @show-config ai_defaults.think_interval"}
+
+	var key: String = args[0]
+	var value: Variant = TextManager.get_config(key)
+
+	if value == null:
+		return {"success": false, "message": "Config key not found: %s\n\nCheck vault/config/ files." % key}
+
+	var message: String = "═══ Config Entry ═══\n\n"
+	message += "Key: %s\n" % key
+	message += "Value: %s\n" % str(value)
+	message += "Type: %s\n" % type_string(typeof(value))
+
+	return {"success": true, "message": message}

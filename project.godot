@@ -17,6 +17,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+TextManager="*res://Daemons/text_manager.gd"
 MarkdownVault="*res://Daemons/markdown_vault.gd"
 WorldKeeper="*res://Daemons/world_keeper.gd"
 EventWeaver="*res://Daemons/event_weaver.gd"

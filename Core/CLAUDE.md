@@ -42,8 +42,31 @@ Components follow a standard lifecycle:
 1. Player/AI inputs command string
 2. `CommandParser.parse()` tokenizes and resolves objects
 3. `ActorComponent.execute_command()` dispatches to `_cmd_*()` method
-4. Command result returned and broadcast to observers
-5. Memory component records action and result
+4. Command uses `TextManager.get_text()` for all user-facing messages
+5. Command result returned and broadcast to observers
+6. Memory component records action and result
+
+### TextManager Integration
+All command implementations use the TextManager daemon for user-facing text:
+
+```gdscript
+func _cmd_look(_args: Array) -> Dictionary:
+	if current_location == null:
+		return {"success": false, "message": TextManager.get_text("commands.social.look.no_location")}
+
+	# Broadcast observable behavior
+	var behavior := TextManager.get_text("behaviors.actions.look", {"actor": owner.name})
+	EventWeaver.broadcast_to_location(current_location, {...})
+
+	return {"success": true, "message": description}
+```
+
+**Key Patterns**:
+- Use `TextManager.get_text(key, vars)` for all messages
+- Key format: `"commands.category.verb.message_type"` or `"behaviors.actions.verb"`
+- Variable substitution: `{actor}`, `{text}`, `{target}`, `{exit}`, etc.
+- Observable behaviors separate from command results
+- Vault-based text is hot-reloadable via `@reload-text` command
 
 ## Maintenance Instructions
 When working in this directory, maintain this CLAUDE.md file and create/update CLAUDE.md files in any subdirectories following the recursive documentation pattern described in the root CLAUDE.md.
