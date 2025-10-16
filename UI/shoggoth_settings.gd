@@ -83,7 +83,7 @@ func _load_current_settings() -> void:
 	host_input.text = host
 
 	# Load temperature
-	var temp = config.get_value("ollama", "temperature", 0.7)
+	var temp = config.get_value("ollama", "temperature", 0.9)
 	temperature_slider.value = temp
 	_on_temperature_changed(temp)
 

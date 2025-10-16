@@ -45,7 +45,7 @@ var model: String = "gemma3:27b"
 var embedding_model: String = "embeddinggemma"
 
 ## Default temperature for generation (0.0 = deterministic, 1.0 = creative)
-var temperature: float = 0.7
+var temperature: float = 0.9
 
 
 ## HTTPRequest node used for making API calls

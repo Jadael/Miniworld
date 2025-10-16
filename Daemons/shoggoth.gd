@@ -111,7 +111,7 @@ func _create_default_config() -> void:
 	Default configuration:
 	- host: http://localhost:11434 (standard Ollama port)
 	- model: gemma3:4b (faster model for testing)
-	- temperature: 0.7 (moderate creativity)
+	- temperature: 0.9 (high temperature, which hopefully blends with the caffolding for long-term behaviors)
 	- max_tokens: 32765 (generous response length for local inference)
 	- stop_tokens: [] (no custom stop sequences)
 
@@ -426,7 +426,7 @@ func _apply_task_parameters() -> Dictionary:
 		options["num_predict"] = max_tokens
 
 		# Apply temperature from config
-		var temperature: float = config.get_value("ollama", "temperature", 0.7)
+		var temperature: float = config.get_value("ollama", "temperature", 0.9)
 		options["temperature"] = temperature
 
 		# Get default stop tokens from config
