@@ -41,7 +41,7 @@ signal models_initialized(llm_success: bool)
 const CONFIG_FILE = "user://shoggoth_config.cfg"
 
 ## Simple prompt used to test LLM connectivity during initialization
-const INIT_TEST_PROMPT = "Say hello!"
+const INIT_TEST_PROMPT = "Please say only `test`."
 
 ## Maximum number of retry attempts for failed tasks before giving up
 const MAX_RETRIES = 3
@@ -122,7 +122,7 @@ func _create_default_config() -> void:
 	"""
 	config.set_value("ollama", "host", "http://localhost:11434")
 	config.set_value("ollama", "model", "gemma3:4b")
-	config.set_value("ollama", "temperature", 0.7)
+	config.set_value("ollama", "temperature", 0.9)
 	config.set_value("ollama", "max_tokens", 32765)
 	config.set_value("ollama", "stop_tokens", [])
 	config.save(CONFIG_FILE)
@@ -173,7 +173,7 @@ func _initialize_models() -> void:
 		return
 
 	var ollama_host = config.get_value("ollama", "host", "http://localhost:11434")
-	var model_name = config.get_value("ollama", "model", "gemma3:27b")
+	var model_name = config.get_value("ollama", "model", "gemma3:4b")
 
 	_configure_ollama_client(ollama_host, model_name)
 	_run_initialization_test()
@@ -183,13 +183,13 @@ func _configure_ollama_client(ollama_host: String, model_name: String) -> void:
 
 	Args:
 		ollama_host: URL of the Ollama server (e.g., "http://localhost:11434")
-		model_name: Name of the model to use (e.g., "gemma3:27b")
+		model_name: Name of the model to use (e.g., "gemma3:4b")
 	"""
 	if ollama_client == null:
 		return
 	ollama_client.set_host(ollama_host)
 	ollama_client.set_model(model_name)
-	var temperature = config.get_value("ollama", "temperature", 0.7)
+	var temperature = config.get_value("ollama", "temperature", 0.9)
 	ollama_client.set_temperature(temperature)
 	#Chronicler.log_event(self, "ollama_client_configured", {
 	#	"host": ollama_host,
@@ -731,8 +731,8 @@ func generate_async(prompt: Variant, system_prompt: String, callback: Callable) 
 
 	Args:
 		prompt: Either a String (prompt text) or a Callable that returns a String.
-		        If a Callable is provided, it will be invoked just-in-time when
-		        Shoggoth is ready to execute the task, ensuring maximum freshness.
+				If a Callable is provided, it will be invoked just-in-time when
+				Shoggoth is ready to execute the task, ensuring maximum freshness.
 		system_prompt: System instruction defining personality or behavior
 		callback: A Callable that will be invoked with the result string
 

@@ -347,9 +347,10 @@ func _construct_prompt(context: Dictionary) -> String:
 func _on_thought_complete(response: String) -> void:
 	"""Handle LLM response and execute the decided action.
 
-	Parses the LLM response for MOO-style command syntax: "command args | reason"
-	The | separator is optional. Everything before | is the command, everything
-	after is the reasoning.
+	Parses the LLM response using LambdaMOO-compatible parser:
+	- Handles quoted arguments: put "yellow bird" in clock
+	- Supports prepositions: put bird in cage
+	- Extracts reasoning: command | reason
 
 	Args:
 		response: The LLM's text response containing decision
@@ -357,13 +358,12 @@ func _on_thought_complete(response: String) -> void:
 	Notes:
 		Resets is_thinking flag to allow next think cycle.
 		Emits thought_completed signal after command execution.
+		Uses CommandParser for consistent, robust parsing.
 	"""
 	is_thinking = false
 
-	# Parse MOO-style command: "command args | reason"
-	var command_line: String = response.strip_edges()
-
 	# Extract first non-empty line from response (in case LLM adds extra text)
+	var command_line: String = response.strip_edges()
 	var lines: PackedStringArray = command_line.split("\n")
 	for line in lines:
 		var trimmed: String = line.strip_edges()
@@ -371,33 +371,17 @@ func _on_thought_complete(response: String) -> void:
 			command_line = trimmed
 			break
 
-	# Split on | to separate command from reason
-	var command: String = ""
-	var reason: String = ""
-
-	if "|" in command_line:
-		var parts: PackedStringArray = command_line.split("|", true, 1)
-		command = parts[0].strip_edges()
-		if parts.size() > 1:
-			reason = parts[1].strip_edges()
-	else:
-		command = command_line
-
-	if command != "":
+	if command_line != "":
 		# Execute the decided command through ActorComponent
 		if owner.has_component("actor"):
 			var actor_comp: ActorComponent = owner.get_component("actor") as ActorComponent
 
-			# Parse command into verb and arguments
-			var parts: PackedStringArray = command.split(" ", true, 1)
-			var cmd: String = parts[0].to_lower()
-			var args: Array = []
-			if parts.size() > 1:
-				args = parts[1].split(" ", false)
+			# Parse command using LambdaMOO parser
+			var location: WorldObject = owner.get_location()
+			var parsed: CommandParser.ParsedCommand = CommandParser.parse(command_line, owner, location)
 
-			actor_comp.execute_command(cmd, args, reason)
-
-		thought_completed.emit(command, reason)
+			actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
+			thought_completed.emit(command_line, parsed.reason)
 
 
 func _fallback_behavior() -> void:

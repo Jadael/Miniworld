@@ -268,6 +268,9 @@ func _cmd_go(args: Array) -> Dictionary:
 		"destination": destination,
 		"message": "%s leaves to %s." % [owner.name, destination.name]
 	})
+	
+	# Store old location
+	var prior_location = current_location #FIXME: Doesn't grab the actual NAME of the current location
 
 	# Perform the actual move
 	owner.move_to(destination)
@@ -279,7 +282,7 @@ func _cmd_go(args: Array) -> Dictionary:
 		"actor": owner,
 		"action": "arrives",
 		"origin": current_location,
-		"message": "%s arrives." % owner.name
+		"message": "%s arrives from %s." % [owner.name, prior_location]
 	})
 
 	# Automatically look at the new location

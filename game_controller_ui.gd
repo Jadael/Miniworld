@@ -265,59 +265,31 @@ func _initial_look() -> void:
 func _on_command_submitted(text: String) -> void:
 	"""Process and execute player command from UI input.
 
-	Parses the input text using MOO-style syntax: "command args | reason"
-	Also handles command shortcuts (l, ', :). The | separator allows adding
-	optional reasoning/commentary to commands.
+	Uses LambdaMOO-compatible parsing with full support for:
+	- Quoted arguments: put "yellow bird" in clock
+	- Prepositional phrases: put bird in cage, give sword to knight
+	- Command shortcuts: " (say), : (emote), ; (eval)
+	- Reasoning separator: command | reason
 
 	Args:
 		text: Raw command string from UI input
 
 	Notes:
-		Shortcuts: l=look, '=say, :=emote
-		MOO syntax: Everything after | is treated as reason/commentary
+		Uses CommandParser for full MOO-spec parsing with wildcards,
+		prepositions, object resolution, and quote handling.
 	"""
-	# First, split on | to separate command from reason
-	var command_part: String = text
-	var reason: String = ""
-
-	if "|" in text:
-		var pipe_parts: Array = text.split("|", true, 1)
-		command_part = pipe_parts[0].strip_edges()
-		if pipe_parts.size() > 1:
-			reason = pipe_parts[1].strip_edges()
-
-	# Parse command and arguments from command part
-	var parts: Array = command_part.split(" ", false, 1)
-	var command: String = parts[0].to_lower()
-	var args_string: String = parts[1] if parts.size() > 1 else ""
-
-	# Handle command shortcuts
-	match command:
-		"l":
-			command = "look"
-		"'", "\"":
-			command = "say"
-			# If shortcut was used without space, extract everything after it
-			if command_part.begins_with("'") or command_part.begins_with("\""):
-				args_string = command_part.substr(1).strip_edges()
-		":":
-			command = "emote"
-			if command_part.begins_with(":"):
-				args_string = command_part.substr(1).strip_edges()
-
 	# Verify player has actor component
 	var actor_comp: ActorComponent = player.get_component("actor") as ActorComponent
 	if not actor_comp:
 		ui.add_error("You have no actor component!")
 		return
 
-	# Build arguments array from string
-	var args: Array = []
-	if not args_string.is_empty():
-		args = args_string.split(" ", false)
+	# Parse command using LambdaMOO parser
+	var location: WorldObject = player.get_location()
+	var parsed: CommandParser.ParsedCommand = CommandParser.parse(text, player, location)
 
-	# Execute command through actor component with reason
-	actor_comp.execute_command(command, args, reason)
+	# Execute command through actor component with parsed structure
+	actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
 
 func _on_command_executed(_command: String, result: Dictionary, _reason: String) -> void:
 	"""Handle player command execution results and update UI.

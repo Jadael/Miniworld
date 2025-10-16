@@ -570,6 +570,131 @@ command_list = [
 - Custom @help annotations in docstrings
 - Dynamic command registration from plugins
 
+### LambdaMOO-Compatible Command Parser
+
+**Pattern**: Full implementation of the LambdaMOO command parser spec for maximum generosity and precision.
+
+**Architecture**:
+1. **CommandParser** (Core/command_parser.gd) - Static parser class
+2. **ParsedCommand** - Result structure with all parsed components
+3. **Integration** - Used by both player input and AI agent output
+
+**Parser Features (LambdaMOO Spec Complete)**:
+
+1. **Quote-Aware Tokenization**:
+   - Double quotes group multi-word arguments: `put "yellow bird" in clock`
+   - Backslash escapes: `say He said \"hello\"`
+   - Whitespace handling: `foo "bar mumble" baz` → ["foo", "bar mumble", "baz"]
+
+2. **Prepositional Phrase Parsing**:
+   - Matches 14 preposition sets from MOO spec
+   - Multi-word prepositions: "in front of", "on top of", "out of"
+   - Earliest match wins: `foo as bar to baz` uses "as", not "to"
+   - Three command forms supported:
+     - `verb` → look
+     - `verb dobj` → examine bird
+     - `verb dobj prep iobj` → put bird in cage
+
+3. **Object Resolution with MOO Semantics**:
+   - Special values: `#-1` (nothing), `#-2` (ambiguous), `#-3` (failed)
+   - Direct ID lookup: `#123` format
+   - Keywords: "me" (actor), "here" (location)
+   - Scoped search: location contents + actor inventory first
+   - Prefix matching with priority: exact matches beat prefix matches
+   - Alias support through WorldObject.aliases array
+
+4. **Wildcard Verb Matching**:
+   - `*` matches anything: `*` → any verb
+   - Mid-star: `foo*bar` matches "foo", "foob", "fooba", "foobar"
+   - End-star: `foo*` matches any string starting with "foo"
+   - No star: exact match required
+
+5. **Built-in Shortcuts**:
+   - `"` → `say` (speech)
+   - `:` → `emote` (action)
+   - `;` → `eval` (future: code evaluation)
+
+6. **Reasoning Separator**:
+   - `|` separator extracts optional reasoning: `go garden | Want to explore`
+   - Reasoning is private (stored in memory, not broadcast)
+   - Compatible with all command forms
+
+**Usage Example**:
+```gdscript
+# Parse a complex command
+var parsed: CommandParser.ParsedCommand = CommandParser.parse(
+    'put "yellow bird" in cuckoo clock | Keeping it safe',
+    actor,
+    location
+)
+
+# Result:
+# parsed.verb = "put"
+# parsed.dobjstr = "yellow bird"
+# parsed.dobj = <WorldObject> or #-1/#-2/#-3
+# parsed.prepstr = "in"
+# parsed.iobjstr = "cuckoo clock"
+# parsed.iobj = <WorldObject> or #-1/#-2/#-3
+# parsed.reason = "Keeping it safe"
+# parsed.args = ["yellow bird", "in", "cuckoo", "clock"]
+# parsed.argstr = "yellow bird in cuckoo clock"
+```
+
+**Integration Points**:
+
+1. **Player Input** (game_controller_ui.gd:265-292):
+```gdscript
+func _on_command_submitted(text: String) -> void:
+    var location: WorldObject = player.get_location()
+    var parsed: CommandParser.ParsedCommand = CommandParser.parse(text, player, location)
+    actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
+```
+
+2. **AI Agent Output** (thinker.gd:347-384):
+```gdscript
+func _on_thought_complete(response: String) -> void:
+    var location: WorldObject = owner.get_location()
+    var parsed: CommandParser.ParsedCommand = CommandParser.parse(command_line, owner, location)
+    actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
+```
+
+**Parser API**:
+
+```gdscript
+# Main parsing function
+static func parse(input: String, actor: WorldObject, location: WorldObject) -> ParsedCommand
+
+# Verb matching with wildcards
+static func match_verb(verb_input: String, verb_pattern: String) -> bool
+
+# Preposition set lookup
+static func get_prep_set(prep: String) -> String
+
+# Preposition specifier matching
+static func matches_prep_spec(found_prep: String, spec: String) -> bool
+```
+
+**Benefits**:
+- Unified parsing for players and AI agents
+- Full LambdaMOO compatibility for familiar UX
+- Robust quote and escape handling
+- Generous matching reduces user frustration
+- Extensible for future verb-based programming
+
+**Future Enhancements**:
+- Verb resolution: scan objects for matching verb names
+- Argument specifiers: `this`, `any`, `none` for dobj/iobj
+- $do_command() hook for custom parsing
+- `.program` and built-in MOO commands
+- Flush command and PREFIX/SUFFIX support
+
+**Testing Considerations**:
+- Quote edge cases: `"foo"bar"baz"` should parse correctly
+- Preposition precedence: multiple preps use earliest match
+- Object ambiguity: proper #-2 return when multiple matches
+- Alias matching: both exact and prefix work correctly
+- Wildcard verbs: all three forms (* mid-star, end-star, no-star)
+
 ---
 
 ## Development and Testing Workflow
