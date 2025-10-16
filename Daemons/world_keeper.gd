@@ -508,12 +508,13 @@ func _load_character_from_markdown(content: String) -> WorldObject:
 			var memory_comp: MemoryComponent = MemoryComponent.new()
 			character.add_component("memory", memory_comp)
 
-			# Load memories from vault
+			# Load memories from vault WITHOUT triggering re-save
 			var loaded_memories: Array[Dictionary] = memory_comp.load_memories_from_vault(character.name)
 			for memory in loaded_memories:
-				memory_comp.add_memory(
+				memory_comp.add_memory_from_vault(
 					memory.get("content", ""),
-					memory.get("metadata", {})
+					memory.get("metadata", {}),
+					memory.get("timestamp", Time.get_unix_time_from_system())
 				)
 
 	return character

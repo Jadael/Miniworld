@@ -145,6 +145,34 @@ func add_memory(content: String, metadata: Dictionary = {}) -> void:
 		memories = memories.slice(memories.size() - max_memories, memories.size())
 
 
+func add_memory_from_vault(content: String, metadata: Dictionary, timestamp: int) -> void:
+	"""Add a memory loaded from vault WITHOUT triggering re-save.
+
+	This is used when loading memories from disk to avoid creating
+	duplicate vault entries.
+
+	Args:
+		content: The memory content text
+		metadata: Metadata dictionary from vault frontmatter
+		timestamp: Unix timestamp from vault
+
+	Notes:
+		Does NOT save to vault. Use this only for loading existing memories.
+	"""
+	var memory = {
+		"type": "memory",
+		"content": content,
+		"timestamp": timestamp,
+		"metadata": metadata
+	}
+
+	memories.append(memory)
+
+	# Trim old memories if we exceed the limit
+	if memories.size() > max_memories:
+		memories = memories.slice(memories.size() - max_memories, memories.size())
+
+
 func get_recent_memories(count: int = 64) -> Array[Dictionary]:
 	"""Get the most recent N memories.
 
@@ -589,6 +617,156 @@ func recall_notes_async(query: String, callback: Callable) -> void:
 
 		callback.call(results)
 	)
+
+
+func get_relevant_notes_for_context(location_name: String, occupants: Array[String], max_notes: int = 3) -> Array[Dictionary]:
+	"""Find notes relevant to the current context (location, occupants, recent activity).
+
+	Uses simple keyword matching to find notes that mention:
+	- Current location name
+	- Names of other actors present
+
+	This is optimized for Thinker prompts - cheap, instant, and contextual.
+
+	Args:
+		location_name: Name of current location
+		occupants: Array of actor names in the location
+		max_notes: Maximum number of relevant notes to return (default 3)
+
+	Returns:
+		Array of Dictionaries with keys: title (String), content (String)
+		Sorted by relevance (most relevant first)
+
+	Notes:
+		Returns empty array if no notes exist or no matches found.
+		Performs case-insensitive matching.
+	"""
+	if notes.size() == 0:
+		return []
+
+	# Build search terms from context
+	var search_terms: Array[String] = []
+	if location_name != "" and location_name != "nowhere":
+		search_terms.append(location_name.to_lower())
+	for occupant in occupants:
+		search_terms.append(occupant.to_lower())
+
+	if search_terms.size() == 0:
+		return []
+
+	# Score each note by relevance
+	var scored_notes: Array[Dictionary] = []
+	for title in notes.keys():
+		var note_data: Dictionary = notes[title]
+		var title_lower: String = title.to_lower()
+		var content_lower: String = note_data.content.to_lower()
+		var combined_text: String = title_lower + " " + content_lower
+
+		var score: int = 0
+		for term in search_terms:
+			# Count occurrences of each search term
+			var pos: int = 0
+			while true:
+				pos = combined_text.find(term, pos)
+				if pos == -1:
+					break
+				score += 1
+				pos += term.length()
+
+		if score > 0:
+			scored_notes.append({
+				"title": title,
+				"content": note_data.content,
+				"score": score
+			})
+
+	# Sort by score (highest first)
+	scored_notes.sort_custom(func(a, b): return a.score > b.score)
+
+	# Return top N results
+	var results: Array[Dictionary] = []
+	for i in range(min(max_notes, scored_notes.size())):
+		results.append({
+			"title": scored_notes[i].title,
+			"content": scored_notes[i].content
+		})
+
+	return results
+
+
+func recall_notes_instant(query: String) -> String:
+	"""Search notes instantly using cached embeddings only (no async generation).
+
+	This is optimized for AI agents who need immediate results without waiting
+	for embedding generation. Uses simple keyword matching and returns:
+	- Most recently edited note (for convenience)
+	- All note titles (for reference)
+	- Basic keyword search results (if query matches)
+
+	Args:
+		query: Search phrase (used for keyword matching)
+
+	Returns:
+		Formatted string with instant recall results
+
+	Notes:
+		Does not require Shoggoth or embedding generation.
+		Falls back gracefully if no notes exist.
+	"""
+	if notes.size() == 0:
+		return "You have no notes yet. Use 'note <title> -> <content>' to create one."
+
+	var results: String = ""
+
+	# Find most recently edited note
+	var most_recent_title: String = ""
+	var most_recent_timestamp: int = 0
+	for title in notes.keys():
+		var note_data: Dictionary = notes[title]
+		var created: int = note_data.get("created", 0)
+		if created > most_recent_timestamp:
+			most_recent_timestamp = created
+			most_recent_title = title
+
+	# Show most recent note first (convenience)
+	if most_recent_title != "":
+		var recent_note: Dictionary = notes[most_recent_title]
+		results += "## Most Recently Edited Note\n\n"
+		results += "**%s**\n%s\n\n" % [most_recent_title, recent_note.content]
+
+	# Show all note titles for reference
+	results += "## All Notes (%d total)\n\n" % notes.size()
+	var titles: Array[String] = []
+	for title in notes.keys():
+		titles.append(title)
+	titles.sort()
+	for title in titles:
+		results += "- %s\n" % title
+	results += "\n"
+
+	# Keyword search (simple case-insensitive matching)
+	var query_lower: String = query.to_lower()
+	var matches: Array[String] = []
+
+	for title in notes.keys():
+		var note_data: Dictionary = notes[title]
+		var title_lower: String = title.to_lower()
+		var content_lower: String = note_data.content.to_lower()
+
+		# Check if query matches title or content
+		if query_lower in title_lower or query_lower in content_lower:
+			matches.append(title)
+
+	# Show keyword matches if any
+	if matches.size() > 0:
+		results += "## Notes Matching '%s' (%d found)\n\n" % [query, matches.size()]
+		for title in matches:
+			var note_data: Dictionary = notes[title]
+			results += "**%s**\n%s\n\n" % [title, note_data.content]
+	elif query != "":
+		results += "## Keyword Search\n\nNo notes contain '%s'. Check the list above for available notes.\n" % query
+
+	return results
 
 
 func load_notes_from_vault(agent_name: String) -> void:

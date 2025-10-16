@@ -21,6 +21,7 @@ The docs directory contains all architecture documentation, design notes, implem
 ### Feature Designs
 - **HELP_SYSTEM_DESIGN.md** - Command help and metadata system design
 - **MVP_SELF_AWARENESS.md** - Self-aware agent commands design (@my-profile, @set-profile)
+- **Memory System** - Comprehensive memory/notes system (see Core/command_metadata.gd for usage guide)
 
 ### Setup and Configuration
 - **OLLAMA_SETUP.md** - How to install and configure Ollama for LLM inference

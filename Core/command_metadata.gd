@@ -15,7 +15,7 @@ class_name CommandMetadata
 const CATEGORIES = {
 	"social": "Interact with others and your environment",
 	"movement": "Navigate through the world",
-	"memory": "Personal notes, recall, and reflection",
+	"memory": "Personal wiki notes (persistent), recall, transient thoughts, and memory analysis. All private content with observable behavior.",
 	"self": "Self-awareness and self-modification",
 	"building": "Create and modify world structure",
 	"admin": "Administrative and debugging commands",
@@ -64,39 +64,45 @@ const COMMANDS = {
 	},
 
 	# === Memory Commands ===
+	# Memory System Overview:
+	# - TRANSIENT MEMORIES: Automatic observation log (what you see/do), included in AI prompts automatically
+	# - PERSISTENT NOTES: Your personal wiki (indexed knowledge base), also auto-included in prompts when relevant
+	# - PRIVACY: All memory commands have PRIVATE CONTENT but OBSERVABLE BEHAVIOR
+	#   (others see you "pause to recall" or "jot something down" but not what you're thinking/writing)
+
 	"think": {
 		"aliases": [],
 		"category": "memory",
 		"syntax": "think <thought>",
-		"description": "Record internal reasoning or observations (private)",
+		"description": "Record internal reasoning (private). Auto-recorded in transient memories. Others see you \"pause in thought\" but not content. Use for quick observations or planning.",
 		"example": "think I should explore the garden next"
 	},
 	"note": {
 		"aliases": [],
 		"category": "memory",
 		"syntax": "note <title> -> <content>",
-		"description": "Save important information to your personal wiki (appends to existing notes)",
-		"example": "note Moss Observations -> Contemplative moss entity in garden"
+		"description": "Save to personal wiki (private, persistent, indexed). APPENDS to existing notes. Auto-surfaced in AI prompts when relevant to location/people. Use for important facts, relationships, discoveries.",
+		"example": "note Moss Observations -> Contemplative moss entity in garden, likes philosophy"
 	},
 	"@overwrite-note": {
 		"aliases": [],
 		"category": "memory",
 		"syntax": "@overwrite-note <title> -> <content>",
-		"description": "Create or completely replace a note (overwrites existing content)",
-		"example": "@overwrite-note Moss Observations -> Updated: Deep philosophical moss being"
+		"description": "Create/replace wiki note (private, persistent, indexed). OVERWRITES existing content completely. Use to correct/update notes rather than append.",
+		"example": "@overwrite-note Moss Observations -> UPDATED: Deep philosophical being, actually a plant collective"
 	},
 	"recall": {
 		"aliases": [],
 		"category": "memory",
-		"syntax": "recall <query>",
-		"description": "Search your notes semantically for relevant information",
-		"example": "recall moss philosophy"
+		"syntax": "recall [query]",
+		"description": "Instant keyword search of your wiki (private, no wait). Shows recent note + all titles + matches. Use to refresh memory on specific topics. AI agents also auto-see relevant notes in prompts.",
+		"example": "recall moss"
 	},
 	"dream": {
 		"aliases": [],
 		"category": "memory",
 		"syntax": "dream",
-		"description": "Review jumbled memories for new insights and connections",
+		"description": "LLM-analyzed jumble of recent + random memories for insights (private, async). Auto-saved as note. Use when stuck, curious, or seeking connections. Others see you \"lost in thought\".",
 		"example": "dream"
 	},
 

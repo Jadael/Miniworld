@@ -655,46 +655,43 @@ func _cmd_overwrite_note(args: Array) -> Dictionary:
 
 
 func _cmd_recall(args: Array) -> Dictionary:
-	"""RECALL command - Search notes semantically.
+	"""RECALL command - Search notes instantly with keyword matching.
+
+	Returns immediate results including:
+	- Most recently edited note (for convenience)
+	- All note titles (for reference)
+	- Keyword search results (if query provided)
+
+	This command is now instant - no async processing required.
+	AI agents can use this without losing turns waiting for results.
 
 	Args:
-		args: Array of words forming search query
+		args: Array of words forming search query (optional)
 
 	Returns:
-		Dictionary with success status (async results via signal)
+		Dictionary with success status and immediate results
 	"""
-	if args.size() == 0:
-		return {"success": false, "message": "Usage: recall <query>"}
-
-	var query: String = " ".join(args)
-
 	if not owner.has_component("memory"):
 		return {"success": false, "message": "You have no memory to recall from."}
 
 	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
+	var query: String = " ".join(args) if args.size() > 0 else ""
 
-	# Broadcast observable behavior (searching memory)
+	# Broadcast observable behavior (brief pause to think)
 	if current_location:
 		EventWeaver.broadcast_to_location(current_location, {
 			"type": "action",
 			"actor": owner,
-			"action": "searches their memory",
-			"message": "%s furrows their brow, searching their memory." % owner.name
+			"action": "pauses to recall",
+			"message": "%s pauses to recall..." % owner.name
 		})
 
-	# Search notes asynchronously
-	memory_comp.recall_notes_async(query, func(result: String):
-		# Emit result as delayed command_executed
-		var delayed_result: Dictionary = {
-			"success": true,
-			"message": result
-		}
-		command_executed.emit("recall", delayed_result, "")
-	)
+	# Get instant results (no async required)
+	var result_text: String = memory_comp.recall_notes_instant(query)
 
 	return {
 		"success": true,
-		"message": "Searching memories for: %s\n(Processing...)" % query
+		"message": result_text
 	}
 
 

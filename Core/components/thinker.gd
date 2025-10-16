@@ -201,6 +201,7 @@ func _build_context() -> Dictionary:
 		- exits (Array[String]): Available exit names
 		- occupants (Array[String]): Names of other actors present
 		- recent_memories (Array[String]): Recent observations
+		- relevant_notes (Array[Dictionary]): Contextually relevant notes from personal wiki
 	"""
 	var location: WorldObject = owner.get_location()
 	var context: Dictionary = {
@@ -230,6 +231,20 @@ func _build_context() -> Dictionary:
 		var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
 		context.recent_memories = memory_comp.get_recent_memories(64)
 
+		# Retrieve contextually relevant notes based on location and occupants
+		# Create typed array for occupants to satisfy type checker
+		var occupants_typed: Array[String] = []
+		for occupant in context.occupants:
+			occupants_typed.append(occupant)
+
+		context.relevant_notes = memory_comp.get_relevant_notes_for_context(
+			context.location_name,
+			occupants_typed,
+			3  # max 3 relevant notes
+		)
+	else:
+		context.relevant_notes = []
+
 	return context
 
 func _construct_prompt(context: Dictionary) -> String:
@@ -240,6 +255,11 @@ func _construct_prompt(context: Dictionary) -> String:
 
 	Uses the Python prototype strategy: repeats current situation at
 	the beginning and end to act like an automatic LOOK command.
+
+	Now includes contextually relevant notes from personal wiki, automatically
+	surfacing knowledge about the current location, present actors, and recent
+	activity. Notes are intelligently deduplicated to avoid showing the same
+	note multiple times.
 
 	Now supports customization via properties:
 	- "thinker.prompt_sections" (Dictionary) - override specific sections
@@ -279,11 +299,35 @@ func _construct_prompt(context: Dictionary) -> String:
 		prompt += "You are alone.\n\n"
 
 	# Recent observations from memory - presented as a transcript scroll
+	var notes_shown_in_memories: Array[String] = []  # Track notes already shown
 	if context.recent_memories.size() > 0:
 		prompt += "## Recent Events (what you've been doing and seeing)\n\n"
 		for memory in context.recent_memories:
 			var mem_dict: Dictionary = memory as Dictionary
-			prompt += "%s\n" % mem_dict.content
+			var content: String = mem_dict.content
+			prompt += "%s\n" % content
+
+			# Track if this memory line contains a note title (to avoid duplication later)
+			if content.contains("You saved a note titled"):
+				var parts: PackedStringArray = content.split("\"")
+				if parts.size() >= 2:
+					notes_shown_in_memories.append(parts[1])
+		prompt += "\n"
+
+	# Contextually relevant notes from personal wiki
+	if context.has("relevant_notes") and context.relevant_notes.size() > 0:
+		prompt += "## Relevant Notes from Your Personal Wiki\n\n"
+		prompt += "These notes might be helpful for your current situation:\n\n"
+		for note_data in context.relevant_notes:
+			var note_dict: Dictionary = note_data as Dictionary
+			var note_title: String = note_dict.get("title", "")
+			var note_content: String = note_dict.get("content", "")
+
+			# Skip notes that were recently created (already shown in memories)
+			if note_title in notes_shown_in_memories:
+				continue
+
+			prompt += "**%s**\n%s\n\n" % [note_title, note_content]
 		prompt += "\n"
 
 	# SECOND presentation: Reinforce current situation after memories
