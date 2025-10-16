@@ -428,7 +428,8 @@ static func match_verb(verb_input: String, verb_pattern: String) -> bool:
 
 	# Star at end: prefix match
 	if pattern_lower.ends_with("*"):
-		var prefix: String = pattern_lower.substr(0, pattern_lower.length() - 1)
+		var prefix: String = pattern_lower.substr(0, pattern_lower.length() - 1) #FIXME: W 0:00:02:198   The variable "prefix" is declared below in the parent block. <GDScript Error>CONFUSABLE_LOCAL_DECLARATION <GDScript Source>command_parser.gd:431
+
 		return input_lower.begins_with(prefix)
 
 	# Star in middle: match prefix up to star

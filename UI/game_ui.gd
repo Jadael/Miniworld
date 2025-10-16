@@ -65,7 +65,8 @@ func _ready() -> void:
 	a formatted welcome message with command reference.
 	"""
 	# Connect input signals
-	command_input.text_submitted.connect(_on_command_submitted)
+	# NOTE: We handle Enter key manually in _input() instead of using text_submitted
+	# because LineEdit's text_submitted signal has focus issues in Godot
 	send_button.pressed.connect(_on_send_pressed)
 
 	# Focus on input for immediate interaction
@@ -95,17 +96,24 @@ func _ready() -> void:
 	add_event("")
 
 func _input(event: InputEvent) -> void:
-	"""Handle keyboard input for command history navigation.
+	"""Handle keyboard input for command history navigation and Enter key.
 
 	Intercepts UP/DOWN arrow keys when command input is focused to
-	navigate through command history.
+	navigate through command history. Also intercepts Enter key to
+	avoid LineEdit's text_submitted focus issues.
 
 	Args:
 		event: The input event to process
 	"""
-	# Command history navigation with arrow keys
 	if event is InputEventKey and event.pressed and command_input.has_focus():
-		if event.keycode == KEY_UP:
+		# Handle Enter key for command submission
+		if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
+			var text: String = command_input.text
+			if not text.strip_edges().is_empty():
+				_on_command_submitted(text)
+			get_viewport().set_input_as_handled()
+		# Command history navigation with arrow keys
+		elif event.keycode == KEY_UP:
 			_history_prev()
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_DOWN:
@@ -139,7 +147,7 @@ func _on_command_submitted(text: String) -> void:
 	# Clear input
 	command_input.clear()
 
-	# Re-grab focus immediately (LineEdit can handle this during text_submitted)
+	# Re-grab focus to keep input ready for next command
 	command_input.grab_focus()
 
 
