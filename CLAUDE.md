@@ -301,35 +301,35 @@ Remember: In this project, comments and documentation are as critical as the cod
 var pending_callbacks: Dictionary = {}  # task_id → callback
 
 func generate_async(prompt: String, system_prompt: String, callback: Callable) -> String:
-    var task_id = submit_chat(messages)
-    pending_callbacks[task_id] = callback  # Register callback
-    return task_id
+	var task_id = submit_chat(messages)
+	pending_callbacks[task_id] = callback  # Register callback
+	return task_id
 
 func _emit_task_completion(result: String) -> void:
-    var task_id = current_task.get("id", "unknown")
+	var task_id = current_task.get("id", "unknown")
 
-    # Invoke registered callback
-    if pending_callbacks.has(task_id):
-        var callback: Callable = pending_callbacks[task_id]
-        pending_callbacks.erase(task_id)  # Remove after use
-        callback.call(result)
+	# Invoke registered callback
+	if pending_callbacks.has(task_id):
+		var callback: Callable = pending_callbacks[task_id]
+		pending_callbacks.erase(task_id)  # Remove after use
+		callback.call(result)
 
-    task_completed.emit(task_id, result)  # Also emit signal
+	task_completed.emit(task_id, result)  # Also emit signal
 ```
 
 **DON'T**: Have callers create temporary signal connections
 ```gdscript
 # ANTI-PATTERN - causes null reference errors
 func generate_async_WRONG(prompt: String, callback: Callable) -> String:
-    var task_id = submit_chat(messages)
+	var task_id = submit_chat(messages)
 
-    var on_complete: Callable = func(id: String, result: String):
-        if id == task_id:
-            callback.call(result)
-            task_completed.disconnect(on_complete)  # ❌ Can become null!
+	var on_complete: Callable = func(id: String, result: String):
+		if id == task_id:
+			callback.call(result)
+			task_completed.disconnect(on_complete)  # ❌ Can become null!
 
-    task_completed.connect(on_complete)
-    return task_id
+	task_completed.connect(on_complete)
+	return task_id
 ```
 
 **Rationale**:
@@ -383,8 +383,8 @@ func generate_async(prompt: Variant, system_prompt: String, callback: Callable) 
 
 	Args:
 		prompt: Either a String (prompt text) or a Callable that returns a String.
-		        If a Callable is provided, it will be invoked just-in-time when
-		        Shoggoth is ready to execute the task, ensuring maximum freshness.
+				If a Callable is provided, it will be invoked just-in-time when
+				Shoggoth is ready to execute the task, ensuring maximum freshness.
 		...
 	"""
 	var task = {
@@ -558,19 +558,19 @@ func _broadcast_thinking_behavior(location: WorldObject) -> void:
 ```gdscript
 # Set properties as defaults during _on_added
 if not owner.has_property("thinker.profile"):
-    owner.set_property("thinker.profile", _deprecated_profile)
+	owner.set_property("thinker.profile", _deprecated_profile)
 if not owner.has_property("thinker.think_interval"):
-    owner.set_property("thinker.think_interval", _deprecated_think_interval)
+	owner.set_property("thinker.think_interval", _deprecated_think_interval)
 
 # Access via getters/setters
 func get_profile() -> String:
-    if owner and owner.has_property("thinker.profile"):
-        return owner.get_property("thinker.profile")
-    return _deprecated_profile
+	if owner and owner.has_property("thinker.profile"):
+		return owner.get_property("thinker.profile")
+	return _deprecated_profile
 
 func set_profile(new_profile: String) -> void:
-    if owner:
-        owner.set_property("thinker.profile", new_profile)
+	if owner:
+		owner.set_property("thinker.profile", new_profile)
 ```
 
 **Benefits**:
@@ -604,17 +604,17 @@ func set_profile(new_profile: String) -> void:
 **Implementation** (actor.gd:1218-1409):
 ```gdscript
 func _cmd_my_profile(_args: Array) -> Dictionary:
-    if not owner.has_component("thinker"):
-        return {"success": false, "message": "No thinker component"}
+	if not owner.has_component("thinker"):
+		return {"success": false, "message": "No thinker component"}
 
-    var thinker: ThinkerComponent = owner.get_component("thinker")
-    # Display profile and interval...
+	var thinker: ThinkerComponent = owner.get_component("thinker")
+	# Display profile and interval...
 
 func _cmd_set_profile(args: Array) -> Dictionary:
-    # Parse args for -> separator
-    # Update thinker.profile property
-    # Save to vault via AIAgent._save_agent_to_vault(owner)
-    # Broadcast observable behavior (others see "pauses in contemplation")
+	# Parse args for -> separator
+	# Update thinker.profile property
+	# Save to vault via AIAgent._save_agent_to_vault(owner)
+	# Broadcast observable behavior (others see "pauses in contemplation")
 ```
 
 **Key Design Decisions**:
@@ -643,24 +643,24 @@ func _cmd_set_profile(args: Array) -> Dictionary:
 **Command Registry Structure**:
 ```gdscript
 const COMMANDS = {
-    "look": {
-        "aliases": ["l"],
-        "category": "social",
-        "syntax": "look",
-        "description": "Observe your current location and who's present",
-        "example": "look"
-    },
-    # ... 29 commands total
+	"look": {
+		"aliases": ["l"],
+		"category": "social",
+		"syntax": "look",
+		"description": "Observe your current location and who's present",
+		"example": "look"
+	},
+	# ... 29 commands total
 }
 
 const CATEGORIES = {
-    "social": "Interact with others and your environment",
-    "movement": "Navigate through the world",
-    "memory": "Personal notes, recall, and reflection",
-    "self": "Self-awareness and self-modification",
-    "building": "Create and modify world structure",
-    "admin": "Administrative and debugging commands",
-    "query": "Get information about the world and commands"
+	"social": "Interact with others and your environment",
+	"movement": "Navigate through the world",
+	"memory": "Personal notes, recall, and reflection",
+	"self": "Self-awareness and self-modification",
+	"building": "Create and modify world structure",
+	"admin": "Administrative and debugging commands",
+	"query": "Get information about the world and commands"
 }
 ```
 
@@ -673,9 +673,9 @@ const CATEGORIES = {
 **AI Agent Integration** (thinker.gd:322-323):
 ```gdscript
 command_list = [
-    # ... existing commands ...
-    "help [command|category]: Get help on commands (try 'help social' or 'help say')",
-    "commands: List all available commands"
+	# ... existing commands ...
+	"help [command|category]: Get help on commands (try 'help social' or 'help say')",
+	"commands: List all available commands"
 ]
 ```
 
@@ -713,9 +713,9 @@ command_list = [
    - Multi-word prepositions: "in front of", "on top of", "out of"
    - Earliest match wins: `foo as bar to baz` uses "as", not "to"
    - Three command forms supported:
-     - `verb` → look
-     - `verb dobj` → examine bird
-     - `verb dobj prep iobj` → put bird in cage
+	 - `verb` → look
+	 - `verb dobj` → examine bird
+	 - `verb dobj prep iobj` → put bird in cage
 
 3. **Object Resolution with MOO Semantics**:
    - Special values: `#-1` (nothing), `#-2` (ambiguous), `#-3` (failed)
@@ -745,9 +745,9 @@ command_list = [
 ```gdscript
 # Parse a complex command
 var parsed: CommandParser.ParsedCommand = CommandParser.parse(
-    'put "yellow bird" in cuckoo clock | Keeping it safe',
-    actor,
-    location
+	'put "yellow bird" in cuckoo clock | Keeping it safe',
+	actor,
+	location
 )
 
 # Result:
@@ -767,17 +767,17 @@ var parsed: CommandParser.ParsedCommand = CommandParser.parse(
 1. **Player Input** (game_controller_ui.gd:265-292):
 ```gdscript
 func _on_command_submitted(text: String) -> void:
-    var location: WorldObject = player.get_location()
-    var parsed: CommandParser.ParsedCommand = CommandParser.parse(text, player, location)
-    actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
+	var location: WorldObject = player.get_location()
+	var parsed: CommandParser.ParsedCommand = CommandParser.parse(text, player, location)
+	actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
 ```
 
 2. **AI Agent Output** (thinker.gd:347-384):
 ```gdscript
 func _on_thought_complete(response: String) -> void:
-    var location: WorldObject = owner.get_location()
-    var parsed: CommandParser.ParsedCommand = CommandParser.parse(command_line, owner, location)
-    actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
+	var location: WorldObject = owner.get_location()
+	var parsed: CommandParser.ParsedCommand = CommandParser.parse(command_line, owner, location)
+	actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
 ```
 
 **Parser API**:
@@ -859,9 +859,9 @@ static func matches_prep_spec(found_prep: String, spec: String) -> bool
 print("[Component] _on_added called for: %s" % obj.name)
 print("[Component] Connecting to signal...")
 if signal.connect(handler) == OK:
-    print("[Component] Successfully connected!")
+	print("[Component] Successfully connected!")
 else:
-    push_warning("[Component] Failed to connect!")
+	push_warning("[Component] Failed to connect!")
 
 # Director runs project and reports:
 # "I see the _on_added message but no 'Successfully connected' message"

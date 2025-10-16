@@ -479,23 +479,46 @@ func _parse_iso_timestamp(iso_string: String) -> int:
 
 ## Note Management
 
-func add_note_async(title: String, content: String, reason: String, callback: Callable) -> void:
+func add_note_async(title: String, content: String, reason: String, callback: Callable, append_mode: bool = true) -> void:
 	"""Create or update note with embedding generation.
 
 	Args:
-		title: Note title (unique key, overwrites existing)
-		content: Note body
+		title: Note title (unique key)
+		content: Note body to write or append
 		reason: Why this note was created
 		callback: Called when embedding completes
+		append_mode: If true (default), append to existing note; if false, overwrite
 	"""
 	# Save markdown file
 	var sanitized_title: String = MarkdownVault.sanitize_filename(title)
 	var agent_path: String = MarkdownVault.AGENTS_PATH + "/" + MarkdownVault.sanitize_filename(owner.name)
 	var note_path: String = agent_path + "/notes/" + sanitized_title + ".md"
 
+	var final_content: String = content
+	var created_timestamp: String = MarkdownVault.get_timestamp()
+
+	# If appending and note exists, combine with existing content
+	if append_mode:
+		var existing_file: String = MarkdownVault.read_file(note_path)
+		if not existing_file.is_empty():
+			var parsed: Dictionary = MarkdownVault.parse_frontmatter(existing_file)
+			var existing_body: String = parsed.body.strip_edges()
+
+			# Remove "# Title\n\n" header if present
+			var header_pattern = "# " + title + "\n\n"
+			if existing_body.begins_with(header_pattern):
+				existing_body = existing_body.substr(header_pattern.length())
+
+			# Preserve original creation timestamp
+			created_timestamp = parsed.frontmatter.get("created", MarkdownVault.get_timestamp())
+
+			# Append new content with separator
+			final_content = existing_body + "\n\n---\n\n" + content
+
 	var frontmatter: Dictionary = {
 		"title": title,
-		"created": MarkdownVault.get_timestamp(),
+		"created": created_timestamp,
+		"updated": MarkdownVault.get_timestamp(),
 		"reason": reason
 	}
 	if owner:
@@ -504,12 +527,12 @@ func add_note_async(title: String, content: String, reason: String, callback: Ca
 			frontmatter["location"] = location.name
 
 	var full_content: String = MarkdownVault.create_frontmatter(frontmatter)
-	full_content += "# %s\n\n%s\n" % [title, content]
+	full_content += "# %s\n\n%s\n" % [title, final_content]
 
 	MarkdownVault.write_file(note_path, full_content)
 
-	# Cache note
-	notes[title] = {"content": content, "filepath": note_path, "created": Time.get_unix_time_from_system()}
+	# Cache note with combined content
+	notes[title] = {"content": final_content, "filepath": note_path, "created": Time.get_unix_time_from_system()}
 
 	# Generate embeddings asynchronously
 	if Shoggoth and Shoggoth.ollama_client:

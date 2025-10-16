@@ -75,8 +75,15 @@ const COMMANDS = {
 		"aliases": [],
 		"category": "memory",
 		"syntax": "note <title> -> <content>",
-		"description": "Save important information to your personal wiki",
+		"description": "Save important information to your personal wiki (appends to existing notes)",
 		"example": "note Moss Observations -> Contemplative moss entity in garden"
+	},
+	"@overwrite-note": {
+		"aliases": [],
+		"category": "memory",
+		"syntax": "@overwrite-note <title> -> <content>",
+		"description": "Create or completely replace a note (overwrites existing content)",
+		"example": "@overwrite-note Moss Observations -> Updated: Deep philosophical moss being"
 	},
 	"recall": {
 		"aliases": [],

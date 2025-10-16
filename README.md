@@ -118,12 +118,12 @@ Core/
 ├── ai_agent.gd             # Helper class for creating AI agents
 ├── command_metadata.gd     # Command registry for help system
 └── components/             # Capability components
-    ├── component_base.gd   # Base class for all components
-    ├── location.gd         # Rooms and exits
-    ├── actor.gd            # Command execution (29 commands)
-    ├── memory.gd           # Event recording and notes
-    ├── thinker.gd          # AI decision-making
-    └── vector_store.gd     # Semantic search
+	├── component_base.gd   # Base class for all components
+	├── location.gd         # Rooms and exits
+	├── actor.gd            # Command execution (29 commands)
+	├── memory.gd           # Event recording and notes
+	├── thinker.gd          # AI decision-making
+	└── vector_store.gd     # Semantic search
 
 Daemons/
 ├── world_keeper.gd         # Object registry and persistence

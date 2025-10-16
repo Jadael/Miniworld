@@ -134,6 +134,8 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 			result = _cmd_dream(args)
 		"note":
 			result = _cmd_note(args)
+		"@overwrite-note":
+			result = _cmd_overwrite_note(args)
 		"recall":
 			result = _cmd_recall(args)
 		"who":
@@ -599,6 +601,56 @@ func _cmd_note(args: Array) -> Dictionary:
 	return {
 		"success": true,
 		"message": "Creating note: %s\n(Indexing in background...)" % title
+	}
+
+
+func _cmd_overwrite_note(args: Array) -> Dictionary:
+	"""@OVERWRITE-NOTE command - Create/overwrite a persistent note (replaces existing).
+
+	Unlike NOTE which appends to existing notes, this command completely
+	replaces any existing note with the same title.
+
+	Syntax: @overwrite-note <title> -> <content>
+
+	Args:
+		args: Array with title and content separated by ->
+
+	Returns:
+		Dictionary with success status and message
+	"""
+	if args.size() == 0:
+		return {"success": false, "message": "Usage: @overwrite-note <title> -> <content>"}
+
+	var full_args: String = " ".join(args)
+	if not "->" in full_args:
+		return {"success": false, "message": "Usage: @overwrite-note <title> -> <content> (arrow required)"}
+
+	var parts: PackedStringArray = full_args.split("->", true, 1)
+	var title: String = parts[0].strip_edges()
+	var content: String = parts[1].strip_edges() if parts.size() > 1 else ""
+
+	if not owner.has_component("memory"):
+		return {"success": false, "message": "You have no memory to write notes."}
+
+	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
+
+	# Broadcast observable behavior (writing)
+	if current_location:
+		EventWeaver.broadcast_to_location(current_location, {
+			"type": "action",
+			"actor": owner,
+			"action": "jots something down",
+			"message": "%s jots something down." % owner.name
+		})
+
+	# Add note asynchronously with append_mode=false to overwrite
+	memory_comp.add_note_async(title, content, last_reason, func():
+		print("[Actor] %s completed note overwrite: %s" % [owner.name, title])
+	, false)
+
+	return {
+		"success": true,
+		"message": "Overwriting note: %s\n(Indexing in background...)" % title
 	}
 
 
