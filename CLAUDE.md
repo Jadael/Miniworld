@@ -21,6 +21,65 @@
 
 ---
 
+## Recursive CLAUDE.md Documentation Pattern
+
+**CRITICAL**: This project uses a recursive documentation system where CLAUDE.md files exist at multiple levels of the directory structure.
+
+### The Pattern
+
+Each directory should have its own CLAUDE.md that:
+1. **Explains the directory's purpose** - What files belong here and why
+2. **Documents its contents** - Brief description of each file/subdirectory
+3. **Shows its relationship to the project** - How this directory fits into the larger architecture
+4. **Repeats these instructions** - Ensures Claude Code maintains this pattern recursively
+
+### Your Responsibilities
+
+When working in ANY directory:
+- **Check for CLAUDE.md** - Read it to understand the local context
+- **Create if missing** - If a directory lacks CLAUDE.md, create one following this pattern
+- **Update when changing files** - Keep CLAUDE.md synchronized with actual directory contents
+- **Maintain the recursion instruction** - Every CLAUDE.md should instruct future Claude Code sessions to maintain CLAUDE.md files in subdirectories
+
+### Example Structure
+
+```
+G:\_workbench\miniworld/
+├── CLAUDE.md              # Root: Overall project principles (this file)
+├── Core/
+│   ├── CLAUDE.md          # Core: WorldObject, components, command parser
+│   └── components/
+│       └── CLAUDE.md      # Components: Actor, Thinker, Memory, Location, etc.
+├── Daemons/
+│   └── CLAUDE.md          # Daemons: Singleton managers (WorldKeeper, EventWeaver, Shoggoth)
+├── UI/
+│   └── CLAUDE.md          # UI: Game interface and player interaction
+├── docs/
+│   └── CLAUDE.md          # Docs: Architecture and design documentation
+```
+
+### Template for Subdirectory CLAUDE.md
+
+```markdown
+# [Directory Name]
+
+## Purpose
+[What this directory contains and why it exists]
+
+## Contents
+- **file1.gd** - [Brief description]
+- **file2.gd** - [Brief description]
+- **subdirectory/** - [What's in here]
+
+## Relationship to Project
+[How this fits into the larger Miniworld architecture]
+
+## Maintenance Instructions
+When working in this directory, maintain this CLAUDE.md file and create/update CLAUDE.md files in any subdirectories following the recursive documentation pattern described in the root CLAUDE.md.
+```
+
+---
+
 ## Code Documentation and Maintenance Standards
 
 ### Before Making Changes: Commit Clean Starting Point
