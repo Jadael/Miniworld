@@ -268,9 +268,9 @@ func _cmd_go(args: Array) -> Dictionary:
 		"destination": destination,
 		"message": "%s leaves to %s." % [owner.name, destination.name]
 	})
-	
-	# Store old location
-	var prior_location = current_location #FIXME: Doesn't grab the actual NAME of the current location
+
+	# Store old location name before moving (current_location will change after move_to)
+	var prior_location_name: String = current_location.name
 
 	# Perform the actual move
 	owner.move_to(destination)
@@ -281,8 +281,8 @@ func _cmd_go(args: Array) -> Dictionary:
 		"type": "movement",
 		"actor": owner,
 		"action": "arrives",
-		"origin": current_location,
-		"message": "%s arrives from %s." % [owner.name, prior_location]
+		"destination": destination,
+		"message": "%s arrives from %s." % [owner.name, prior_location_name]
 	})
 
 	# Automatically look at the new location
@@ -483,7 +483,7 @@ func _cmd_dream(_args: Array) -> Dictionary:
 		return {"success": false, "message": "You have no memories to dream about."}
 
 	# Combine and shuffle to create dream-like jumble
-	var dream_memories: Array = []
+	var dream_memories: Array[Dictionary] = []
 	dream_memories.append_array(recent)
 	dream_memories.append_array(random)
 	dream_memories.shuffle()
@@ -735,7 +735,7 @@ func _cmd_rooms(_args: Array) -> Dictionary:
 		- success (bool): Always true
 		- message (String): Formatted list of rooms with occupants
 	"""
-	var rooms: Array = WorldKeeper.get_all_rooms()
+	var rooms: Array[WorldObject] = WorldKeeper.get_all_rooms()
 
 	if rooms.size() == 0:
 		return {"success": true, "message": "No rooms exist."}
@@ -743,7 +743,7 @@ func _cmd_rooms(_args: Array) -> Dictionary:
 	# Build formatted room list with occupants
 	var text: String = "Rooms in the World\n\n"
 	for room in rooms:
-		var occupants: Array = []
+		var occupants: Array[String] = []
 		for obj in room.get_contents():
 			if obj.has_component("actor"):
 				occupants.append(obj.name)
@@ -832,7 +832,9 @@ func _cmd_exit(args: Array) -> Dictionary:
 		return {"success": false, "message": "Usage: @exit <exit name> to <destination>"}
 
 	# Extract destination name from arguments after "to"
-	var dest_parts: Array = args.slice(to_index + 1, args.size())
+	var dest_parts: Array[String] = []
+	for i in range(to_index + 1, args.size()):
+		dest_parts.append(args[i])
 	var dest_name: String = " ".join(dest_parts)
 
 	# Lookup destination room by ID or name
@@ -843,7 +845,7 @@ func _cmd_exit(args: Array) -> Dictionary:
 		destination = WorldKeeper.get_object(dest_name)
 	else:
 		# Name-based lookup
-		var all_rooms: Array = WorldKeeper.get_all_rooms()
+		var all_rooms: Array[WorldObject] = WorldKeeper.get_all_rooms()
 		for room in all_rooms:
 			if room.name.to_lower() == dest_name.to_lower():
 				destination = room
@@ -914,7 +916,7 @@ func _cmd_teleport(args: Array) -> Dictionary:
 			return {"success": false, "message": "%s [%s] is not a room" % [destination.name, destination.id]}
 	else:
 		# Try room name lookup (case-insensitive)
-		var all_rooms: Array = WorldKeeper.get_all_rooms()
+		var all_rooms: Array[WorldObject] = WorldKeeper.get_all_rooms()
 		for room in all_rooms:
 			if room.name.to_lower() == dest_name.to_lower():
 				destination = room
@@ -934,8 +936,8 @@ func _cmd_teleport(args: Array) -> Dictionary:
 	if destination == null:
 		# Show helpful error with available rooms
 		var room_list: String = "\nAvailable rooms:\n"
-		var all_rooms: Array = WorldKeeper.get_all_rooms()
-		for room in all_rooms:
+		var all_rooms_error: Array[WorldObject] = WorldKeeper.get_all_rooms()
+		for room in all_rooms_error:
 			room_list += "  • %s [%s]\n" % [room.name, room.id]
 		return {"success": false, "message": "Cannot find room or character: %s%s" % [dest_name, room_list]}
 
