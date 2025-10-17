@@ -27,10 +27,10 @@ extends Control
 @onready var location_panel: PanelContainer = $SidePanel/LocationContainer/LocationPanel
 
 ## RichTextLabel showing location name and description
-@onready var location_label: RichTextLabel = $SidePanel/LocationContainer/LocationPanel/LocationLabel
+@onready var location_label: RichTextLabel = $SidePanel/LocationContainer/LocationPanel/VBox/LocationLabel
 
 ## Label showing available exits from current location
-@onready var exits_label: Label = $SidePanel/LocationContainer/LocationPanel/ExitsLabel
+@onready var exits_label: Label = $SidePanel/LocationContainer/LocationPanel/VBox/ExitsLabel
 
 ## Container for the occupants panel
 @onready var occupants_panel: PanelContainer = $SidePanel/OccupantsContainer/OccupantsPanel
@@ -76,38 +76,47 @@ func _ready() -> void:
 	command_input.grab_focus()
 
 	# Display welcome screen with command reference
-	add_event("[color=cyan]═══════════════════════════════════════[/color]")
-	add_event("[color=cyan][center][b]MINIWORLD[/b][/center][/color]")
+	add_event("[color=cyan]════════════════════════════════════════════════[/color]")
+	add_event("[color=cyan][center][b][font_size=20]MINIWORLD[/font_size][/b][/center][/color]")
 	add_event("[color=cyan][center]A LambdaMOO-Inspired World[/center][/color]")
-	add_event("[color=cyan]═══════════════════════════════════════[/color]")
+	add_event("[color=cyan]════════════════════════════════════════════════[/color]")
 	add_event("")
-	add_event("[color=orange][b]⚙ Getting Started:[/b][/color]")
-	add_event("  Miniworld requires a local Ollama server for AI agents.")
-	add_event("  [b]Setup:[/b] Install Ollama from https://ollama.com")
-	add_event("  [b]Default:[/b] http://localhost:11434 (auto-configured)")
-	add_event("  [b]Models:[/b] Recommend llama3.2 or similar chat model")
-	add_event("  Type [b]'settings'[/b] to configure connection if needed")
+	add_event("[color=orange][b]⚙  GETTING STARTED[/b][/color]")
+	add_event("[color=gray]────────────────────────────────────────────────[/color]")
+	add_event("Miniworld requires a local [b]Ollama[/b] server for AI agents.")
 	add_event("")
-	add_event("[color=yellow][b]Navigation:[/b][/color]")
-	add_event("  look (l) - Look around")
-	add_event("  go <exit> - Move through an exit")
-	add_event("  where - Show current location")
+	add_event("[color=dim_gray]•[/color] [b]Setup:[/b] Install from [color=light_blue][url]https://ollama.com[/url][/color]")
+	add_event("[color=dim_gray]•[/color] [b]Default:[/b] http://localhost:11434 (auto-configured)")
+	add_event("[color=dim_gray]•[/color] [b]Models:[/b] Recommend llama3.2 or similar chat model")
+	add_event("[color=dim_gray]•[/color] Type [b][color=light_green]settings[/color][/b] to configure connection if needed")
 	add_event("")
-	add_event("[color=yellow][b]Social:[/b][/color]")
-	add_event("  say <msg> or '<msg> - Speak")
-	add_event("  emote <action> or :<action> - Perform action")
-	add_event("  who - List all characters")
 	add_event("")
-	add_event("[color=yellow][b]Building:[/b][/color]")
-	add_event("  rooms - List all rooms")
-	add_event("  @dig <name> - Create a new room")
-	add_event("  @exit <name> to <room> - Connect rooms")
-	add_event("  @teleport <room> - Jump to any room")
+	add_event("[color=yellow][b]📍 NAVIGATION[/b][/color]")
+	add_event("[color=gray]────────────────────────────────────────────────[/color]")
+	add_event("[b]look[/b] (l) [color=gray]..................[/color] Look around")
+	add_event("[b]go[/b] <exit> [color=gray]................[/color] Move through an exit")
+	add_event("[b]where[/b] [color=gray]....................[/color] Show current location")
 	add_event("")
-	add_event("[color=magenta][b]Help:[/b][/color]")
-	add_event("  help - Show all commands")
-	add_event("  help <command> - Get detailed help for a command")
-	add_event("  help <category> - Show commands in a category")
+	add_event("[color=yellow][b]💬 SOCIAL[/b][/color]")
+	add_event("[color=gray]────────────────────────────────────────────────[/color]")
+	add_event("[b]say[/b] <msg> or [b]'[/b]<msg> [color=gray].......[/color] Speak")
+	add_event("[b]emote[/b] <action> or [b]:[/b]<action> [color=gray]..[/color] Perform action")
+	add_event("[b]who[/b] [color=gray]......................[/color] List all characters")
+	add_event("")
+	add_event("[color=yellow][b]🏗  BUILDING[/b][/color]")
+	add_event("[color=gray]────────────────────────────────────────────────[/color]")
+	add_event("[b]rooms[/b] [color=gray]....................[/color] List all rooms")
+	add_event("[b]@dig[/b] <name> [color=gray]...............[/color] Create a new room")
+	add_event("[b]@exit[/b] <name> to <room> [color=gray]....[/color] Connect rooms")
+	add_event("[b]@teleport[/b] <room> [color=gray].........[/color] Jump to any room")
+	add_event("")
+	add_event("[color=magenta][b]❓ HELP[/b][/color]")
+	add_event("[color=gray]────────────────────────────────────────────────[/color]")
+	add_event("[b]help[/b] [color=gray]....................[/color] Show all commands")
+	add_event("[b]help[/b] <command> [color=gray]...........[/color] Detailed command help")
+	add_event("[b]help[/b] <category> [color=gray].........[/color] Show category commands")
+	add_event("")
+	add_event("[color=cyan]════════════════════════════════════════════════[/color]")
 	add_event("")
 
 func _input(event: InputEvent) -> void:
@@ -254,8 +263,8 @@ func add_success(text: String) -> void:
 func update_location(location_name: String, description: String, exits: Array) -> void:
 	"""Update the location panel with current room information.
 
-	Displays the room name in bold yellow, followed by description,
-	and lists available exits at the bottom.
+	Displays the room name in bold yellow with increased size,
+	followed by description, and lists available exits at the bottom.
 
 	Args:
 		location_name: Name of the current location
@@ -263,10 +272,11 @@ func update_location(location_name: String, description: String, exits: Array) -
 		exits: Array of exit names (Strings)
 	"""
 	location_label.clear()
-	location_label.append_text("[b][color=yellow]" + location_name + "[/color][/b]\n\n")
+	location_label.append_text("[font_size=16][b][color=yellow]" + location_name + "[/color][/b][/font_size]\n")
+	location_label.append_text("[color=gray]──────────────[/color]\n")
 	location_label.append_text(description)
 
-	# Update exits display
+	# Update exits display - plain Label doesn't support BBCode
 	if exits.size() > 0:
 		exits_label.text = "Exits: " + ", ".join(exits)
 	else:
@@ -285,11 +295,12 @@ func update_occupants(occupants: Array[String]) -> void:
 	occupants_list.clear()
 
 	if occupants.size() == 0:
-		occupants_list.append_text("[color=gray][i]You are alone[/i][/color]")
+		occupants_list.append_text("[color=dim_gray][i]You are alone[/i][/color]")
 	else:
-		occupants_list.append_text("[b]Also here:[/b]\n\n")
+		occupants_list.append_text("[font_size=14][b]Also here:[/b][/font_size]\n")
+		occupants_list.append_text("[color=gray]──────────────[/color]\n")
 		for occupant in occupants:
-			occupants_list.append_text("• " + occupant + "\n")
+			occupants_list.append_text("[color=light_blue]•[/color] [b]" + occupant + "[/b]\n")
 
 
 func clear_events() -> void:

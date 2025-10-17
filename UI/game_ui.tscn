@@ -57,7 +57,7 @@ size_flags_vertical = 3
 [node name="VBox" type="VBoxContainer" parent="SidePanel/LocationContainer/LocationPanel"]
 layout_mode = 2
 
-[node name="LocationLabel" type="RichTextLabel" parent="SidePanel/LocationContainer/LocationPanel"]
+[node name="LocationLabel" type="RichTextLabel" parent="SidePanel/LocationContainer/LocationPanel/VBox"]
 custom_minimum_size = Vector2(0, 150)
 layout_mode = 2
 size_flags_vertical = 3
@@ -65,10 +65,11 @@ focus_mode = 0
 bbcode_enabled = true
 fit_content = true
 
-[node name="ExitsLabel" type="Label" parent="SidePanel/LocationContainer/LocationPanel"]
+[node name="ExitsLabel" type="Label" parent="SidePanel/LocationContainer/LocationPanel/VBox"]
 layout_mode = 2
 text = "Exits: none"
 horizontal_alignment = 1
+autowrap_mode = 3
 
 [node name="Spacer" type="Control" parent="SidePanel"]
 custom_minimum_size = Vector2(0, 10)
