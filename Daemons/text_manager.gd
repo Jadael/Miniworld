@@ -66,10 +66,14 @@ const FALLBACK_CONFIG := {
 	"shoggoth.max_retries": 3,
 	"shoggoth.retry_delay": 1.0,
 	"shoggoth.embedding_model": "embeddinggemma",
-	"memory_defaults.max_memories_per_agent": 100,
-	"memory_defaults.load_memories_limit": 50,
+	"memory_defaults.max_memories_per_agent": 65536,  # DEPRECATED: Use MemoryBudget
+	"memory_defaults.load_memories_limit": 65536,
 	"memory_defaults.recent_memories_default": 64,
 	"memory_defaults.min_similarity_threshold": 0.0,
+	"memory_budget.percent_of_ram": 0.05,
+	"memory_budget.min_per_agent": 1024,
+	"memory_budget.max_per_agent": 1048576,
+	"memory_budget.avg_memory_size": 300,
 }
 
 
@@ -304,7 +308,7 @@ func _parse_config_file(file_path: String, category: String) -> void:
 		push_warning("[TextManager] Cannot open config file: %s" % file_path)
 		return
 
-	var line_num := 0
+	var line_num := 0 #FIXME: W 0:00:01:402   The local variable "line_num" is declared but never used in the block. If this is intended, prefix it with an underscore: "_line_num".
 
 	while not file.eof_reached():
 		var line := file.get_line().strip_edges()
@@ -372,6 +376,7 @@ func _ensure_vault_structure() -> void:
 	_copy_default_file_if_missing("res://vault/config/ai_defaults.md", "user://vault/config/ai_defaults.md")
 	_copy_default_file_if_missing("res://vault/config/shoggoth.md", "user://vault/config/shoggoth.md")
 	_copy_default_file_if_missing("res://vault/config/memory_defaults.md", "user://vault/config/memory_defaults.md")
+	_copy_default_file_if_missing("res://vault/config/memory_budget.md", "user://vault/config/memory_budget.md")
 	_copy_default_file_if_missing("res://vault/text/defaults/world.md", "user://vault/text/defaults/world.md")
 
 

@@ -11,6 +11,7 @@ Daemons are autoloaded singleton managers that provide global services to the Mi
 - **event_weaver.gd** - Event propagation and observation system, broadcasts events to interested observers
 - **shoggoth.gd** - AI/LLM interface daemon, manages Ollama client and task queue for async inference
 - **markdown_vault.gd** - Persistence system, serializes/deserializes world state to Obsidian-compatible markdown
+- **memory_budget.gd** - Dynamic memory allocation system, scales agent memory limits based on available system resources
 - **ollama_client.gd** - HTTP client for Ollama API, handles streaming responses and embeddings
 
 ## Daemon Responsibilities
@@ -91,6 +92,34 @@ Daemons are autoloaded singleton managers that provide global services to the Mi
 - `save_world()` - Serializes all WorldObjects to vault
 - `load_world()` - Deserializes vault into WorldObjects
 
+### MemoryBudget
+**Purpose**: Dynamic memory allocation for agent memories based on system resources
+
+**Key Features**:
+- Monitors current app memory usage via Performance.MEMORY_STATIC
+- Estimates total available system RAM using heuristics
+- Allocates configurable percentage of RAM for memories (default 5%)
+- Divides budget equally among all agents with Memory components
+- Recalculates every 5 seconds or when agent count changes
+- Scales from 1K-1M memories per agent automatically
+
+**Key Functions**:
+- `get_memory_limit_for_agent(agent)` - Returns max memories for this agent
+- `get_budget_info()` - Returns debug info (per-agent limit, agent count, total budget MB)
+
+**Configuration** (via TextManager/vault):
+- `memory_budget.percent_of_ram` - Percentage of RAM to use (default 0.05 = 5%)
+- `memory_budget.min_per_agent` - Minimum memories per agent (default 1024)
+- `memory_budget.max_per_agent` - Maximum memories per agent (default 1048576)
+- `memory_budget.avg_memory_size` - Estimated bytes per memory (default 300)
+
+**Scaling Examples**:
+- Low-end (4GB RAM, 5% = 200MB): 1 agent gets 682K memories, 10 agents get 68K each
+- Mid-range (16GB RAM, 5% = 800MB): All agents capped at 1M memories each
+- High-end (32GB RAM, 5% = 1.6GB): All agents capped at 1M memories each
+
+**Pattern**: MemoryComponent calls `get_memory_limit_for_agent()` when pruning old memories
+
 ### OllamaClient
 **Purpose**: HTTP interface to Ollama API
 
@@ -154,7 +183,7 @@ Daemons provide the **infrastructure layer** that Core and UI depend on:
 - **Core/WorldObject** uses WorldKeeper for registration and ID management
 - **Core/ActorComponent** uses EventWeaver for observations
 - **Core/ThinkerComponent** uses Shoggoth for LLM inference
-- **Core/MemoryComponent** uses Shoggoth for embeddings
+- **Core/MemoryComponent** uses Shoggoth for embeddings and MemoryBudget for dynamic limits
 - **UI/GameController** uses MarkdownVault for save/load
 
 Daemons are **stateless services** (except for registries/caches) that can be called from anywhere without tight coupling.

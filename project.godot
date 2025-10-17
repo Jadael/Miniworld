@@ -22,6 +22,7 @@ MarkdownVault="*res://Daemons/markdown_vault.gd"
 WorldKeeper="*res://Daemons/world_keeper.gd"
 EventWeaver="*res://Daemons/event_weaver.gd"
 Shoggoth="*res://Daemons/shoggoth.gd"
+MemoryBudget="*res://Daemons/memory_budget.gd"
 
 [rendering]
 

@@ -14,9 +14,15 @@
 ## - Command echoes: "> command args | reason\nresult"
 ## - Observations: Formatted event text (no > prefix)
 ##
+## Memory Limits:
+## - Uses MemoryBudget daemon for dynamic sizing based on system resources
+## - Vault files persist indefinitely (only in-RAM cache is limited)
+## - Limit recalculates automatically as agents are added/removed
+##
 ## Dependencies:
 ## - ActorComponent: Auto-connects for memory recording (optional but recommended)
 ## - MarkdownVault: For persistence to disk
+## - MemoryBudget: Dynamic memory allocation based on system resources
 ##
 ## Related: ThinkerComponent (uses memories for AI decisions)
 
@@ -32,8 +38,8 @@ var memories: Array[Dictionary] = []
 ## Format: {title: {content: String, filepath: String, created: int}}
 var notes: Dictionary = {}
 
-## Maximum memories to retain before oldest are pruned
-var max_memories: int = 100
+## Maximum memories to retain before oldest are pruned (dynamically calculated)
+var max_memories: int = 65536  # Default fallback if MemoryBudget unavailable
 
 ## VectorStore component for semantic search
 var vector_store: VectorStoreComponent = null
@@ -140,6 +146,10 @@ func add_memory(content: String, metadata: Dictionary = {}) -> void:
 	if owner:
 		save_memory_to_vault(owner.name, content, full_metadata)
 
+	# Update limit from MemoryBudget (recalculates dynamically)
+	if MemoryBudget:
+		max_memories = MemoryBudget.get_memory_limit_for_agent(owner)
+
 	# Trim old memories if we exceed the limit
 	if memories.size() > max_memories:
 		memories = memories.slice(memories.size() - max_memories, memories.size())
@@ -167,6 +177,10 @@ func add_memory_from_vault(content: String, metadata: Dictionary, timestamp: int
 	}
 
 	memories.append(memory)
+
+	# Update limit from MemoryBudget (recalculates dynamically)
+	if MemoryBudget:
+		max_memories = MemoryBudget.get_memory_limit_for_agent(owner)
 
 	# Trim old memories if we exceed the limit
 	if memories.size() > max_memories:
