@@ -178,6 +178,8 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 			result = _cmd_show_text(args)
 		"@show-config":
 			result = _cmd_show_config(args)
+		"@memory-status":
+			result = _cmd_memory_status(args)
 		_:
 			result = {"success": false, "message": "Unknown command: %s\nTry 'help' for available commands." % command}
 
@@ -1732,3 +1734,33 @@ func _cmd_show_config(args: Array) -> Dictionary:
 	message += "Type: %s\n" % type_string(typeof(value))
 
 	return {"success": true, "message": message}
+
+
+func _cmd_memory_status(_args: Array) -> Dictionary:
+	"""@MEMORY-STATUS command - Display memory system integrity report (admin command).
+
+	Shows comprehensive memory system statistics including:
+	- Memory count and capacity utilization
+	- Note count and recent activity
+	- Last memory timestamp
+	- Any warnings or issues detected
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): True if actor has memory component
+		- message (String): Formatted integrity report
+
+	Notes:
+		This is an admin/query command for verifying memory system health.
+		Focuses on application-level concerns, trusts OS for file integrity.
+	"""
+	if not owner.has_component("memory"):
+		return {"success": false, "message": "No memory component found."}
+
+	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
+	var report: String = memory_comp.format_integrity_report()
+
+	return {"success": true, "message": report}

@@ -54,6 +54,9 @@ var history_index: int = 0
 ## Reference to game controller (currently unused)
 var game_controller: Node = null
 
+## Current memory status indicator for command prompt
+var memory_status: String = "[Memory: OK]"
+
 
 ## Emitted when player submits a command via Enter or Send button
 signal command_submitted(command: String)
@@ -125,10 +128,15 @@ func _on_command_submitted(text: String) -> void:
 	"""Process submitted command text.
 
 	Adds non-duplicate commands to history, echoes the command in
-	green text, emits command_submitted signal, and clears the input.
+	green text with memory status indicator, emits command_submitted
+	signal, and clears the input.
 
 	Args:
 		text: The command string submitted by the player
+
+	Notes:
+		Memory status is displayed as a compact indicator before the >
+		prompt (e.g., "[Memory: OK] > look" or "[Memory: WARNING - 2 issues] > recall").
 	"""
 	if text.strip_edges().is_empty():
 		return
@@ -138,8 +146,9 @@ func _on_command_submitted(text: String) -> void:
 		command_history.append(text)
 	history_index = command_history.size()
 
-	# Echo command to event scroll
-	add_event("[color=light_green]> " + text + "[/color]")
+	# Echo command to event scroll with memory status indicator
+	var status_color: String = "green" if "OK" in memory_status else "yellow"
+	add_event("[color=%s]%s[/color] [color=light_green]> %s[/color]" % [status_color, memory_status, text])
 
 	# Emit signal for game controller to process
 	command_submitted.emit(text)
@@ -289,3 +298,17 @@ func set_input_enabled(enabled: bool) -> void:
 	"""
 	command_input.editable = enabled
 	send_button.disabled = not enabled
+
+
+func update_memory_status(status: String) -> void:
+	"""Update the memory status indicator for the command prompt.
+
+	Args:
+		status: Compact status string (e.g., "[Memory: OK]" or "[Memory: WARNING - 2 issues]")
+
+	Notes:
+		This updates the cached status that will be displayed on the next
+		command submission. The status indicator appears before the > prompt
+		in green (if OK) or yellow (if warnings detected).
+	"""
+	memory_status = status

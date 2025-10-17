@@ -6,7 +6,10 @@
       "Bash(cat:*)",
       "Bash(git mv:*)",
       "WebSearch",
-      "WebFetch(domain:docs.godotengine.org)"
+      "WebFetch(domain:docs.godotengine.org)",
+      "WebFetch(domain:www.sindome.org)",
+      "WebFetch(domain:tvtropes.org)",
+      "Bash(powershell -Command \"(Get-Item ''G:\\_workbench\\miniworld\\CLAUDE.md'').length\")"
     ],
     "deny": [],
     "ask": []

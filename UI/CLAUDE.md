@@ -50,6 +50,30 @@ game_controller_ui.command_submitted.connect(_on_command_submitted)
 3. game_controller_ui parses command
 4. ActorComponent executes command
 5. Result formatted and displayed in RichTextLabel
+6. Memory status indicator updated after each command
+
+### Memory Status Indicator
+The command prompt displays a lightweight status indicator before each command:
+```gdscript
+# Normal state (green)
+[Memory: OK] > look
+
+# Warning state (yellow)
+[Memory: WARNING - 2 issues] > recall
+```
+
+**Implementation**:
+- `game_ui.gd` maintains cached `memory_status` string
+- `update_memory_status(status)` called after each command execution
+- Status displayed in green (OK) or yellow (warnings)
+- Provides at-a-glance health monitoring without intrusion
+- Detailed reports available via `@memory-status` command
+
+**Status Logic**:
+- Checks memory capacity utilization (warns at 75%, 90%)
+- Detects stale memory (no activity in past hour)
+- Validates basic structure (malformed entries)
+- Trusts OS for file integrity, focuses on application concerns
 
 ### Output Formatting
 Uses BBCode for rich text:

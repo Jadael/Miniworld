@@ -32,6 +32,7 @@ All components inherit from ComponentBase and follow this lifecycle:
 - All `_cmd_*()` methods use TextManager for user-facing text
 - Observes events via EventWeaver subscription
 - Stores last command result and reasoning for inspection
+- **Admin/Query Commands**: Includes `@memory-status` for memory integrity reports
 
 **TextManager Integration**:
 ```gdscript
@@ -64,6 +65,12 @@ All command messages are loaded from `user://vault/text/commands/*.md` and can b
 - Generates embeddings via Shoggoth for semantic search
 - Provides `get_recent_memories()` and `search_memories()` APIs
 - Used by ThinkerComponent to build AI context
+- **Integrity Checking**: Provides application-level health monitoring
+  - `get_integrity_status()` - Lightweight check for capacity, activity, structure
+  - `format_integrity_report()` - Detailed human-readable report
+  - Monitors: memory count, capacity utilization, stale data detection, note count
+  - Trusts OS for file integrity, focuses on application-level concerns
+  - Powers `@memory-status` command and command prompt status indicator
 
 ### LocationComponent
 - Manages exits as dictionary (exit_name → destination_id)

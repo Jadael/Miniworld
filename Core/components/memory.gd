@@ -844,3 +844,136 @@ func _combine_vectors(vec_a: Array, vec_b: Array, weight_a: float, weight_b: flo
 			combined[i] = float(combined[i]) / norm
 
 	return combined
+
+
+## Memory Integrity Checks
+
+func get_integrity_status() -> Dictionary:
+	"""Check memory system integrity and return status summary.
+
+	Performs lightweight integrity checks that make sense for a text game:
+	- Memory count and capacity utilization
+	- Note count and recent activity
+	- Detection of stale memories (none added recently)
+	- Basic validation of memory structure
+
+	Returns:
+		Dictionary with keys:
+		- status: String ("OK", "WARNING", "ERROR")
+		- summary: String (brief one-line status, suitable for command prompt)
+		- memory_count: int (number of memories in RAM)
+		- note_count: int (number of notes cached)
+		- capacity_used: float (percentage of max_memories used, 0.0-1.0)
+		- warnings: Array[String] (list of issues found)
+		- last_memory_age: int (seconds since last memory was added)
+
+	Notes:
+		This is optimized for unobtrusive display - "OK" is the expected default.
+		Trust the OS for file integrity; focus on application-level concerns.
+	"""
+	var status_result: Dictionary = {
+		"status": "OK",
+		"summary": "[Memory: OK]",
+		"memory_count": memories.size(),
+		"note_count": notes.size(),
+		"capacity_used": 0.0,
+		"warnings": [],
+		"last_memory_age": 0
+	}
+
+	# Calculate capacity utilization
+	if max_memories > 0:
+		status_result.capacity_used = float(memories.size()) / float(max_memories)
+
+	# Check for stale memories (no activity in past hour)
+	if memories.size() > 0:
+		var last_memory: Dictionary = memories[memories.size() - 1]
+		var last_timestamp: int = last_memory.get("timestamp", 0)
+		var current_time: int = int(Time.get_unix_time_from_system())
+		var age_seconds: int = current_time - last_timestamp
+		status_result.last_memory_age = age_seconds
+
+		# Warn if no memories recorded in past hour (3600 seconds)
+		if age_seconds > 3600:
+			status_result.warnings.append("No recent memory activity (last: %d min ago)" % (age_seconds / 60))
+
+	# Warn if approaching capacity
+	if status_result.capacity_used > 0.9:
+		status_result.warnings.append("Memory near capacity (%d/%d)" % [memories.size(), max_memories])
+	elif status_result.capacity_used > 0.75:
+		status_result.warnings.append("Memory 75%% full (%d/%d)" % [memories.size(), max_memories])
+
+	# Basic structure validation (sanity checks)
+	var malformed_count: int = 0
+	for memory in memories:
+		if not memory.has("content") or not memory.has("timestamp"):
+			malformed_count += 1
+
+	if malformed_count > 0:
+		status_result.warnings.append("%d malformed memories detected" % malformed_count)
+
+	# Determine overall status
+	if status_result.warnings.size() > 0:
+		status_result.status = "WARNING"
+		status_result.summary = "[Memory: WARNING - %d issues]" % status_result.warnings.size()
+	else:
+		status_result.status = "OK"
+		status_result.summary = "[Memory: OK]"
+
+	return status_result
+
+
+func format_integrity_report() -> String:
+	"""Generate a detailed human-readable integrity report.
+
+	Returns:
+		Formatted multi-line string suitable for @memory-status command output
+
+	Notes:
+		Provides comprehensive details beyond the one-line status summary.
+	"""
+	var status: Dictionary = get_integrity_status()
+
+	var report: String = "# Memory System Integrity Report\n\n"
+
+	# Overall status
+	report += "**Status**: %s\n\n" % status.status
+
+	# Statistics
+	report += "## Statistics\n\n"
+	report += "- **Memories in RAM**: %d / %d (%.1f%% capacity)\n" % [
+		status.memory_count,
+		max_memories,
+		status.capacity_used * 100.0
+	]
+	report += "- **Notes cached**: %d\n" % status.note_count
+
+	if status.last_memory_age > 0:
+		var age_display: String = ""
+		if status.last_memory_age < 60:
+			age_display = "%d seconds ago" % status.last_memory_age
+		elif status.last_memory_age < 3600:
+			age_display = "%d minutes ago" % (status.last_memory_age / 60)
+		else:
+			age_display = "%.1f hours ago" % (status.last_memory_age / 3600.0)
+		report += "- **Last memory recorded**: %s\n" % age_display
+	elif memories.size() == 0:
+		report += "- **Last memory recorded**: Never (no memories yet)\n"
+
+	report += "\n"
+
+	# Warnings (if any)
+	if status.warnings.size() > 0:
+		report += "## Warnings\n\n"
+		for warning in status.warnings:
+			report += "- ⚠ %s\n" % warning
+		report += "\n"
+
+	# Notes on trust and design
+	report += "## Notes\n\n"
+	report += "- Memory data persists to vault in real-time as markdown files\n"
+	report += "- File integrity is handled by OS-level mechanisms\n"
+	report += "- This report focuses on application-level concerns\n"
+	report += "- Use 'recall' command to verify memory content is accessible\n"
+
+	return report

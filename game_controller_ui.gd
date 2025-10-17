@@ -257,7 +257,11 @@ func _initial_look() -> void:
 
 	Executes a look command immediately after world setup to
 	display the starting location and populate the UI panels.
+	Also initializes the memory status indicator.
 	"""
+	# Initialize memory status indicator
+	ui.update_memory_status(_get_memory_status())
+
 	var actor_comp: ActorComponent = player.get_component("actor") as ActorComponent
 	if actor_comp:
 		actor_comp.execute_command("look")
@@ -320,6 +324,9 @@ func _on_command_executed(_command: String, result: Dictionary, _reason: String)
 		# Update location panel if command affected location
 		if result.has("location"):
 			_update_location_display()
+
+		# Update command prompt status indicator
+		ui.update_memory_status(_get_memory_status())
 	else:
 		ui.add_error(result.message)
 
@@ -364,3 +371,25 @@ func _update_location_display() -> void:
 			occupants.append(obj.name)
 
 	ui.update_occupants(occupants)
+
+
+func _get_memory_status() -> String:
+	"""Get lightweight memory status indicator for command prompt.
+
+	Returns a compact status string suitable for display at the command prompt.
+	Usually returns "[Memory: OK]" but will show warnings if issues detected.
+
+	Returns:
+		String: Compact status indicator (e.g., "[Memory: OK]" or "[Memory: WARNING - 2 issues]")
+
+	Notes:
+		This provides quick at-a-glance status without requiring a full integrity report.
+		For detailed information, players can use the @memory-status command.
+	"""
+	if not player or not player.has_component("memory"):
+		return "[Memory: N/A]"
+
+	var memory_comp: MemoryComponent = player.get_component("memory") as MemoryComponent
+	var status: Dictionary = memory_comp.get_integrity_status()
+
+	return status.summary

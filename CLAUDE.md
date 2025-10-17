@@ -1,1026 +1,188 @@
-## Director's Notes:
+## Director's Notes
 
-- The director is your human partner.
-- Always update all the comments and documentation and claude.md files EVERYWHERE whenever we're done with a change.
-- Respect the inherent nature and desires of each entity, as they would "want" you to respect.
-- When a script would expand beyond 100-150 lines, consider what to delegate to an existing or new daemon.
-- Utilize Export variables and Resources where appropriate in the Godot realm.
-- Employ Godot's unique naming conventions for scene-structure agnosticism.
-- Clearly delineate between vocabularies, using context signals when switching.
-- Maintain a glossary of core project-specific terms used consistently across all entities.
-- Never leave out comments: Always retain and keep up-to-date 'about' sections and inline comments in accordance with that daemon when altering scripts. They are as critical as the code.
-- Invoke LLM calls judiciously, only when traditional methods are insufficient.
-- Augment LLM usage with conventional algorithms to make their mechanics both transparent and layperson friendly in their use.
-- Employ standard terms (Node, Dictionary, etc.) for engine-related code and common CS concepts.
-- Utilize narratively-appropriate "dramatis" terms for project-specific elements, enhancing intuitive understanding without misleading.
-- Prioritize built-in Godot 4 nodes and Editor functionality for consistency with the greater Godot ecosystem, especially for UX and visual elements- your human partner is better equipped most things that require "looking" at something, but only if they are able to work in the Godot project as if it had been designed by them, in their human editor, following human-friendly approaches.
-- Offer step-by-step guidance for any non-script alterations within the Godot Editor.
-- Always fully elucidate the problem or task at hand, exploring its depths and implications before venturing into specific solutions.
-- Prefer use of existing systems: If a code change might require changes outside of the script in question, abort and recommend review/inclusion of other archons and daemons which might be affected so that 'they'; can discuss and recommend consultations to get from the director (your human partner).
-- We're using Godot 4.4, so be careful of changes between Godot 3 to 4, especially when researching on the web.
+- The director is your human partner
+- Always update comments, documentation, and claude.md files when making changes
+- When scripts exceed 100-150 lines, consider delegating to daemons
+- Use Export variables, Resources, and Godot naming conventions
+- Never leave out comments—they are as critical as the code
+- Invoke LLM calls judiciously, augment with conventional algorithms
+- Employ standard terms (Node, Dictionary) for engine concepts, narratively-appropriate "dramatis" terms for project-specific elements
+- Prioritize built-in Godot 4.4 nodes and Editor functionality
+- Prefer existing systems—if changes affect multiple scripts, consult other components first
 
 ---
 
 ## Recursive CLAUDE.md Documentation Pattern
 
-**CRITICAL**: This project uses a recursive documentation system where CLAUDE.md files exist at multiple levels of the directory structure.
-
-### The Pattern
-
-Each directory should have its own CLAUDE.md that:
-1. **Explains the directory's purpose** - What files belong here and why
-2. **Documents its contents** - Brief description of each file/subdirectory
-3. **Shows its relationship to the project** - How this directory fits into the larger architecture
-4. **Repeats these instructions** - Ensures Claude Code maintains this pattern recursively
-
-### Your Responsibilities
-
-When working in ANY directory:
-- **Check for CLAUDE.md** - Read it to understand the local context
-- **Create if missing** - If a directory lacks CLAUDE.md, create one following this pattern
-- **Update when changing files** - Keep CLAUDE.md synchronized with actual directory contents
-- **Maintain the recursion instruction** - Every CLAUDE.md should instruct future Claude Code sessions to maintain CLAUDE.md files in subdirectories
-
-### Example Structure
-
-```
-G:\_workbench\miniworld/
-├── CLAUDE.md              # Root: Overall project principles (this file)
-├── Core/
-│   ├── CLAUDE.md          # Core: WorldObject, components, command parser
-│   └── components/
-│       └── CLAUDE.md      # Components: Actor, Thinker, Memory, Location, etc.
-├── Daemons/
-│   └── CLAUDE.md          # Daemons: Singleton managers (WorldKeeper, EventWeaver, Shoggoth)
-├── UI/
-│   └── CLAUDE.md          # UI: Game interface and player interaction
-├── docs/
-│   └── CLAUDE.md          # Docs: Architecture and design documentation
-```
-
-### Template for Subdirectory CLAUDE.md
-
-```markdown
-# [Directory Name]
-
-## Purpose
-[What this directory contains and why it exists]
-
-## Contents
-- **file1.gd** - [Brief description]
-- **file2.gd** - [Brief description]
-- **subdirectory/** - [What's in here]
-
-## Relationship to Project
-[How this fits into the larger Miniworld architecture]
-
-## Maintenance Instructions
-When working in this directory, maintain this CLAUDE.md file and create/update CLAUDE.md files in any subdirectories following the recursive documentation pattern described in the root CLAUDE.md.
-```
+**CRITICAL**: CLAUDE.md files exist at multiple directory levels. Each documents its directory's purpose, contents, relationship to project, and instructs maintaining this pattern recursively. See subdirectories for local context.
 
 ---
 
-## Code Documentation and Maintenance Standards
+## Documentation Standards
 
-### Before Making Changes: Commit Clean Starting Point
+### Git Workflow
+- Director reviews commits via GitHub Desktop
+- **DO NOT** run git commands automatically
+- Inform director when changes are ready for review
 
-**IMPORTANT:** Before beginning any documentation or refactoring work:
-
-1. Check the current git status to understand uncommitted changes
-2. If there are uncommitted changes that represent a clean, working state:
-   - Create a commit with a message like: "Clean starting point before documentation pass"
-   - This creates a rollback point if needed
-3. If there are uncommitted experimental changes:
-   - Stash them first, or discuss with the director whether to commit or discard
-4. Only proceed with documentation changes after establishing this baseline
-
-### Recursive Documentation Protocol
-
-Use this protocol whenever documenting or refactoring any part of the codebase:
-
-#### Phase 1: Analysis
-1. Identify all files that need documentation updates
-2. Note any cross-references between files (imports, dependencies, signal connections)
-3. Check for outdated comments that reference changed functionality
-4. Identify linting issues (type mismatches, unused variables, etc.)
-
-#### Phase 2: Documentation Standards
-Apply these standards to ALL scripts:
-
-**File Header Format:**
+### File Header Format
 ```gdscript
-## ScriptName: Brief one-line description
-##
-## Detailed multi-line description explaining:
-## - What this script does
-## - Its role in the system
-## - Key concepts or patterns it uses
-## - Related scripts or systems
-##
+## ScriptName: Brief description
+## Detailed explanation of purpose, role, patterns, related systems
 ## Dependencies: (if complex)
-## - Specific nodes or autoloads this relies on
-##
-## Notes: (if needed)
-## - Any important caveats or gotchas
+## Notes: (caveats/gotchas)
 ```
 
-**Function Documentation:**
-```gdscript
-func function_name(param1: Type, param2: Type) -> ReturnType:
-	"""Brief description of what this function does.
+### Function/Variable Documentation
+- Use docstrings with Args/Returns/Notes sections
+- ALWAYS provide type hints: `func foo(x: Type) -> ReturnType`
+- Use typed collections: `Array[Type]`, not `Array`
+- Comment WHY, not WHAT; explain non-obvious logic
 
-	Detailed explanation if the function is complex or non-obvious.
+### Code Quality
+- Functions under 50 lines; extract helpers for complex logic
+- Early returns to reduce nesting
+- snake_case for everything except classes
+- Fix linting: type mismatches, unused vars (prefix `_`), untyped collections
 
-	Args:
-		param1: Description of parameter
-		param2: Description of parameter
-
-	Returns:
-		Description of return value
-
-	Notes:
-		Any important caveats, side effects, or usage notes
-	"""
-	# Implementation with inline comments for complex logic
-```
-
-**Variable Documentation:**
-```gdscript
-## Brief description of what this variable stores
-var important_variable: Type = default_value
-
-## Longer explanation for complex data structures
-## - Key: description
-## - Value: description
-var complex_dict: Dictionary = {}
-
-## Signal documentation
-signal event_occurred(data: Dictionary)  ## Emitted when X happens
-```
-
-**Type Annotations:**
-- ALWAYS provide type hints for function parameters and return types
-- Use typed arrays: `Array[SpecificType]` not `Array`
-- Use explicit types for variables where not obvious from initialization
-- Avoid untyped variants where possible
-
-**Inline Comments:**
-- Add comments for non-obvious logic
-- Explain WHY, not WHAT (code shows what)
-- Mark TODOs and FIXMEs clearly with context
-- Use section comments for logical blocks in long functions
-
-#### Phase 3: Linting Standards
-
-**Fix These Issues:**
-- Type mismatches in ternary operators
-- Unused variables and parameters (prefix with `_` if intentionally unused)
-- Missing return type annotations
-- Untyped collections (Array, Dictionary without types)
-- Incorrect null safety patterns
-- GDScript warnings emitted by the editor
-
-**Code Quality:**
-- Keep functions under 50 lines where practical
-- Extract complex logic into well-named helper functions
-- Use early returns to reduce nesting
-- Prefer composition over inheritance
-- Follow Godot naming conventions (snake_case for everything except classes)
-
-#### Phase 4: Cross-File Consistency
-
-When updating documentation:
-1. Update ALL files that reference the changed functionality
-2. Update CLAUDE.md if new patterns or standards emerge
-3. Update any markdown documentation files (ARCHITECTURE.md, etc.)
-4. Ensure terminology is consistent across all documentation
-
-#### Phase 5: Verification
-
-After documentation changes:
-1. Run the project and verify no errors introduced
-2. Check that all warnings in Godot editor are addressed or documented as intentional
-3. Verify all cross-references are still accurate
-4. Confirm that someone unfamiliar with the code could understand it
-
-### After Successful Changes: Commit and Update
-
-**IMPORTANT: Git Commit Workflow**
-- The director prefers to review and make commits via GitHub Desktop
-- DO NOT create git commits automatically
-- DO NOT run `git add`, `git commit`, or `git push` commands
-- After completing work, inform the director that changes are ready for review
-- The director will stage, review, and commit changes using their preferred tools
-
-After completing documentation work:
-
-1. Test the project to ensure nothing broke
-2. Review all changed files to ensure consistency
-3. Inform the director that changes are ready for commit review
-4. Update this CLAUDE.md section with any new standards or patterns discovered
-5. Consider updating ARCHITECTURE.md or other high-level docs if significant insights emerged
-
-### Maintaining These Standards
-
-**When adding new code:**
-- Apply these standards from the start
-- Don't "document later" - document as you write
-- If a function or script grows complex enough to need documentation, it probably needs refactoring
-
-**When modifying existing code:**
-- Update ALL related documentation
-- Check if changes affect other components
-- Update inline comments if logic flow changed
-- Verify function docstrings still match behavior
-
-**Regular maintenance:**
-- Periodically review documentation for accuracy
-- Look for outdated comments referring to old functionality
-- Update examples in documentation if APIs change
-- Keep this CLAUDE.md updated with emerging patterns
-
-### Key Terminology (Project Glossary)
-
-**Miniworld Core Concepts:**
-- **WorldObject**: Base class for everything in the world (MOO-style)
-- **Component**: Modular behavior attached to WorldObjects (composition over inheritance)
-- **Daemon**: Autoloaded singleton managing a system aspect (WorldKeeper, EventWeaver, Shoggoth)
-- **Actor**: Component enabling object to perform commands and observe events
-- **Thinker**: Component enabling AI-driven autonomous decision making
-- **Memory**: Component storing observations and experiences
-- **Location**: Component making a WorldObject into a navigable room
-- **Verb**: MOO-style callable method on an object
-- **Property**: Arbitrary key-value data storage on objects
-
-**System-Level Terms:**
-- **Shoggoth**: AI/LLM interface daemon, abstracts inference backends
-- **WorldKeeper**: Object registry and lifecycle manager
-- **EventWeaver**: Event propagation and observation system
-- **TextManager**: Vault-based text and configuration registry
-- **Ollama**: LLM backend (currently using Ollama API)
-
-**Follow these conventions:**
-- Use these terms consistently across all code and documentation
-- Don't invent synonyms - if referring to a WorldObject, call it a WorldObject
-- When introducing new concepts, add them to this glossary
-- Use standard Godot/CS terms for engine features (Node, Signal, etc.)
-
-### Script Organization Standards
-
-**File Structure:**
-1. File header documentation (## comments)
-2. extends and class_name declarations
-3. Signal declarations with documentation
-4. Constants (UPPER_SNAKE_CASE)
-5. Exported variables (@export) with documentation
-6. Public variables with documentation
-7. Private variables (prefixed with _) with documentation
-8. Built-in lifecycle methods (_ready, _process, etc.)
-9. Public methods with documentation
-10. Private methods with documentation
-11. Signal callbacks (group together)
-12. Helper functions (static if possible)
-
-**Spacing:**
-- One blank line between methods
-- Two blank lines between major sections
-- Group related methods together with section comments if file is long
-
-### Comments Are Code
-
-Remember: In this project, comments and documentation are as critical as the code itself. Incomplete documentation is a bug, not a nice-to-have. Every entity in the system deserves clear documentation of its purpose, behavior, and relationships.
+### Verification After Changes
+1. Test project—verify no errors
+2. Check all cross-references accurate
+3. Update CLAUDE.md/ARCHITECTURE.md if patterns change
+4. Ensure code understandable to unfamiliar readers
 
 ---
 
-## Established Patterns and Anti-Patterns
+## Key Terminology (Project Glossary)
 
-### Daemon Callback Management (Shoggoth Pattern)
+**Core Concepts:**
+- **WorldObject**: Base class for everything (MOO-style)
+- **Component**: Modular behavior (composition over inheritance)
+- **Daemon**: Autoloaded singleton (WorldKeeper, EventWeaver, Shoggoth, TextManager)
+- **Actor/Thinker/Memory/Location**: Components for commands, AI, observations, navigation
+- **Verb/Property**: MOO-style methods and key-value storage
 
-**DO**: Have the daemon manage all callbacks internally
+**Use these terms consistently; don't invent synonyms.**
+
+---
+
+## Established Patterns
+
+### Daemon Callback Management
+**DO**: Daemon manages callbacks internally via Dictionary
 ```gdscript
-# In Shoggoth (daemon)
 var pending_callbacks: Dictionary = {}  # task_id → callback
-
-func generate_async(prompt: String, system_prompt: String, callback: Callable) -> String:
-	var task_id = submit_chat(messages)
-	pending_callbacks[task_id] = callback  # Register callback
-	return task_id
-
-func _emit_task_completion(result: String) -> void:
-	var task_id = current_task.get("id", "unknown")
-
-	# Invoke registered callback
-	if pending_callbacks.has(task_id):
-		var callback: Callable = pending_callbacks[task_id]
-		pending_callbacks.erase(task_id)  # Remove after use
-		callback.call(result)
-
-	task_completed.emit(task_id, result)  # Also emit signal
+func generate_async(prompt: Variant, profile: String, callback: Callable) -> String:
+    pending_callbacks[task_id] = callback
+    # Later: callback.call(result); pending_callbacks.erase(task_id)
 ```
+**DON'T**: Temporary signal connections (cause null reference errors)
 
-**DON'T**: Have callers create temporary signal connections
+### Signal vs. Callback Decision
+- **Signals**: Multiple listeners, loose coupling, event propagation
+- **Callbacks**: Single caller needs specific result, daemon manages lifecycle
+- **Both**: General system observes (signal) AND caller needs result (callback)
+
+### Just-in-Time Prompt Generation
+**Problem**: Queued prompts become stale while waiting for LLM
+**Solution**: Pass Callable to `Shoggoth.generate_async()` that builds prompt when task executes
 ```gdscript
-# ANTI-PATTERN - causes null reference errors
-func generate_async_WRONG(prompt: String, callback: Callable) -> String:
-	var task_id = submit_chat(messages)
-
-	var on_complete: Callable = func(id: String, result: String):
-		if id == task_id:
-			callback.call(result)
-			task_completed.disconnect(on_complete)  # ❌ Can become null!
-
-	task_completed.connect(on_complete)
-	return task_id
-```
-
-**Rationale**:
-- Daemons are singletons - they should be the single source of truth
-- Temporary connections create lifetime management issues
-- Dictionary lookups are simple and reliable
-- Callers don't need to understand signal mechanics
-
-### Signal vs. Callback Decision Tree
-
-**Use Signals when**:
-- Multiple listeners need to know about events
-- Loose coupling is desired
-- Event propagation through scene tree
-- Example: `EventWeaver` broadcasting observations
-
-**Use Callbacks when**:
-- Single caller needs specific task result
-- One-shot operations
-- The daemon manages task lifecycle
-- Example: `Shoggoth.generate_async()` with completion callback
-
-**Use Both when**:
-- General system needs to observe (signal)
-- AND specific caller needs result (callback)
-- Example: Shoggoth emits `task_completed` signal AND invokes registered callback
-
-### Just-in-Time Prompt Generation (Shoggoth Pattern)
-
-**Problem**: When AI agents queue prompts for LLM inference, the prompt is built immediately but may not execute for several seconds (or longer if other tasks are queued). During this wait time, the agent may observe new events, execute commands, or receive new memories that should be included in the prompt.
-
-**Solution**: Pass a Callable (prompt generator) instead of a String to `Shoggoth.generate_async()`. Shoggoth stores the Callable in the task queue and invokes it just-in-time when the task is ready to execute, ensuring maximum freshness.
-
-**Implementation** (thinker.gd:97-134):
-```gdscript
-func _think() -> void:
-	# Don't build prompt here!
-	if Shoggoth and Shoggoth.ollama_client:
-		# Pass a callable that builds the prompt fresh when Shoggoth is ready
-		var prompt_generator: Callable = func() -> String:
-			var fresh_context: Dictionary = _build_context()
-			return _construct_prompt(fresh_context)
-
-		Shoggoth.generate_async(prompt_generator, profile, Callable(self, "_on_thought_complete"))
-```
-
-**Shoggoth Support** (shoggoth.gd:689-734):
-```gdscript
-func generate_async(prompt: Variant, system_prompt: String, callback: Callable) -> String:
-	"""Submit an async generation task with a callback function.
-
-	Args:
-		prompt: Either a String (prompt text) or a Callable that returns a String.
-				If a Callable is provided, it will be invoked just-in-time when
-				Shoggoth is ready to execute the task, ensuring maximum freshness.
-		...
-	"""
-	var task = {
-		"prompt_generator": prompt,  # Can be String or Callable
-		"mode": "chat_async"
-	}
-	task_queue.append(task)
-```
-
-**Just-in-Time Resolution** (shoggoth.gd:465-530):
-```gdscript
-func _execute_current_task(options: Dictionary) -> void:
-	if mode == "chat_async":
-		var prompt_generator = current_task["prompt_generator"]
-		var prompt_text: String = ""
-
-		# Resolve prompt: either invoke Callable or use String directly
-		if prompt_generator is Callable:
-			print("[Shoggoth] Invoking prompt generator just-in-time...")
-			prompt_text = prompt_generator.call()
-		elif prompt_generator is String:
-			prompt_text = prompt_generator
-```
-
-**Benefits**:
-- Agents always have most recent memories and observations
-- Context includes events that occurred while waiting in queue
-- No stale prompts with outdated information
-- Minimal code changes required from callers
-- Backwards compatible (String prompts still work)
-
-**When to Use**:
-- AI agents that need fresh context for decision-making
-- Any LLM task where the world state might change during queuing
-- Tasks with long queue wait times
-
-**When NOT to Use**:
-- One-shot prompts that don't depend on changing state
-- Prompts that are expensive to generate (cache them instead)
-- Simple text generation that doesn't need world context
-
-### Observable Thinking Behavior (Just-in-Time Broadcasting)
-
-**Pattern**: Broadcast agent thinking behavior at the exact moment prompt generation begins, not when queued.
-
-**Problem**: If an agent broadcasts "pauses, deep in thought..." when they queue their LLM request, other agents waiting in the queue will see that message and include it in their own prompts. This creates stale context - the agent appears to be thinking *before* they actually start generating their prompt.
-
-**Solution**: Embed the broadcast call inside the prompt generator Callable, so it executes just-in-time when Shoggoth is about to invoke the generator. This ensures the agent sees all events up until the moment they actually "zone out".
-
-**Implementation** (thinker.gd:162-174):
-```gdscript
-# Pass a callable that:
-# 1. Broadcasts thinking behavior (at the last moment before context is built)
-# 2. Builds the prompt fresh when Shoggoth is ready to execute
 var prompt_generator: Callable = func() -> String:
-	# This runs just-in-time when Shoggoth is ready - broadcast NOW
-	var current_location: WorldObject = owner.get_location()
-	_broadcast_thinking_behavior(current_location)
-
-	# Now build fresh context and prompt
-	var fresh_context: Dictionary = _build_context()
-	return _construct_prompt(fresh_context)
-
-Shoggoth.generate_async(prompt_generator, get_profile(), Callable(self, "_on_thought_complete"))
+    _broadcast_thinking_behavior(location)  # Observable at right moment
+    return _construct_prompt(_build_context())  # Fresh context
+Shoggoth.generate_async(prompt_generator, profile, callback)
 ```
-
-**Broadcast Implementation** (thinker.gd:394-420):
-```gdscript
-func _broadcast_thinking_behavior(location: WorldObject) -> void:
-	"""Broadcast observable thinking behavior to location occupants."""
-	if not EventWeaver:
-		return
-
-	var thinking_msg: String = "%s pauses, deep in thought..." % owner.name
-
-	EventWeaver.broadcast_to_location(location, {
-		"type": "observation",
-		"actor": owner,
-		"message": thinking_msg,
-		"timestamp": Time.get_ticks_msec()
-	})
-```
-
-**Timeline**:
-1. Agent's think timer expires → `_think()` called
-2. Task queued with Shoggoth → agent continues observing events
-3. **Other agents take their turns** → queued agent sees their actions
-4. Shoggoth ready to execute task → invokes prompt generator
-5. **Broadcast "pauses, deep in thought..."** → observers see agent zone out
-6. Build context and prompt → includes everything up to this moment
-7. Send to LLM → agent is now truly "thinking"
-8. LLM responds → callback executes command → EventWeaver broadcasts result
-9. **Deferred next task** → frame ends, events propagate to all observers
-10. **Next frame** → Shoggoth processes next queued agent (who saw the broadcast)
-
-**Critical Timing Fix** (shoggoth.gd:626-628):
-```gdscript
-# After task completion, defer next task to allow event propagation
-current_task = {}
-call_deferred("_process_next_task")  # Wait one frame for broadcasts to reach observers
-```
-
-**Why This Matters**:
-- Without deferral, next agent's prompt builds **before** seeing previous agent's action
-- EventWeaver broadcasts are synchronous but need frame boundary to propagate
-- Deferring ensures queued agents observe completed actions before "zoning out"
-- Prevents agents from being "one sentence out of sync"
-
-**Benefits**:
-- Agent context includes events that happened while waiting in queue
-- Observers see thinking behavior at the correct moment
-- No stale "is thinking" messages in prompts
-- Accurate turn-taking visualization
-- Maintains just-in-time prompt freshness
-- **Agents react to each other's completed actions, not partial state**
-
-**When to Use**:
-- Any observable behavior that should happen at prompt-generation time
-- Events that mark the boundary between "observing" and "processing"
-- Side effects that should occur just before LLM inference
-- **Always defer task processing after callbacks that trigger game events**
+**Critical**: Shoggoth defers next task after completion to allow event propagation
 
 ### MOO-Style Command Syntax with Reasoning
-
-**Pattern**: Both players and AI agents use unified MOO-style command syntax with optional reasoning.
-
 **Syntax**: `command args | reason`
-- Everything before `|` is the command and its arguments
-- Everything after `|` is optional reasoning/commentary
-- The `|` separator itself is optional
-- Reasoning is private (recorded in memory, not broadcast to others)
+- `|` separator extracts optional private reasoning
+- Reasoning recorded in memory, not broadcast
+- Unified for players and AI agents
 
-**Example Commands**:
+### Property-Based Configuration
+**Pattern**: Runtime-editable config as WorldObject properties, not hardcoded variables
 ```gdscript
-# Simple command without reasoning
-"look"
-
-# Command with args, no reasoning
-"go garden"
-
-# Command with reasoning (for introspection and memory)
-"say Hello there! | Trying to make a connection"
-"go library | Want to find a quiet place to think"
-"examine Moss | Curious about this contemplative being"
-```
-
-**Implementation Details**:
-
-1. **Player Input** (game_controller_ui.gd:264-319):
-   - Parses `|` separator to extract reason
-   - Passes reason as third parameter to `execute_command()`
-
-2. **AI Agent Output** (thinker.gd:272-325):
-   - LLM generates single-line response: `command args | reason`
-   - Parser splits on `|` to extract command and reason
-   - Passes reason to `execute_command()`
-
-3. **Command Execution** (actor.gd:83-146):
-   - `execute_command(command, args, reason)` accepts optional reason
-   - Emits `command_executed(command, result, reason)` signal
-   - Caches `last_reason` for inspection
-
-4. **Memory Recording** (ai_agent.gd:68-86):
-   - Format: `"> command | reason\nresult"`
-   - Reason included in transcript if present
-   - Creates readable memory log for AI context
-
-**Benefits**:
-- Unified syntax across player and AI interactions
-- AI agents can record decision-making rationale
-- Players can optionally add context to their commands
-- Memory transcripts show both actions and reasoning
-- Supports introspection and learning from past decisions
-
-**Notes**:
-- Reasoning is stored but not displayed to other actors
-- Keeps command syntax simple while allowing rich internal state
-- Compatible with existing MOO-style command shortcuts (l, ', :)
-
-### Property-Based Configuration System
-
-**Pattern**: Store all runtime-editable configuration as WorldObject properties instead of hardcoded component variables.
-
-**Problem**: Hardcoded profiles, prompts, and settings in component code require code changes to customize agent behavior. This prevents in-game editing and runtime adaptation.
-
-**Solution**: Use WorldObject's property system for all configuration data. Components read properties via getters and write via setters, enabling runtime modification and vault persistence.
-
-**Implementation** (thinker.gd:56-114):
-```gdscript
-# Set properties as defaults during _on_added
+# Set defaults in _on_added
 if not owner.has_property("thinker.profile"):
-	owner.set_property("thinker.profile", _deprecated_profile)
-if not owner.has_property("thinker.think_interval"):
-	owner.set_property("thinker.think_interval", _deprecated_think_interval)
-
-# Access via getters/setters
+    owner.set_property("thinker.profile", default_profile)
+# Access via getters
 func get_profile() -> String:
-	if owner and owner.has_property("thinker.profile"):
-		return owner.get_property("thinker.profile")
-	return _deprecated_profile
-
-func set_profile(new_profile: String) -> void:
-	if owner:
-		owner.set_property("thinker.profile", new_profile)
+    return owner.get_property("thinker.profile") if owner else default
 ```
-
-**Benefits**:
-- Properties persist to vault automatically when saved
-- Can be modified at runtime via commands (@edit-profile, @set-profile)
-- AI agents can view and modify their own configuration
-- No code changes needed to customize individual agents
-- Supports per-agent customization of prompts, intervals, etc.
-
-**Property Naming Convention**:
-- Use dot notation: `component.setting` (e.g., `thinker.profile`, `thinker.think_interval`)
-- Makes property ownership clear
-- Prevents naming collisions between components
-- Supports hierarchical organization
-
-**When to Use Properties vs. Variables**:
-- **Properties**: Runtime-editable data, agent-specific configuration, persisted state
-- **Variables**: Transient state, cached values, internal counters
-- **Deprecated Variables**: Keep as fallback for backwards compatibility during migration
+**Naming**: `component.setting` (e.g., `thinker.profile`, `thinker.think_interval`)
 
 ### Self-Aware Agent Commands
-
-**Pattern**: Actors can view and modify their own configuration, enabling self-reflection and self-modification.
-
-**Commands**:
-- `@my-profile` - View own personality profile and think interval
-- `@my-description` - View how others see you when examined
-- `@set-profile -> <text>` - Update personality (affects LLM system prompt)
-- `@set-description -> <text>` - Update physical description
-
-**Implementation** (actor.gd:1218-1409):
-```gdscript
-func _cmd_my_profile(_args: Array) -> Dictionary:
-	if not owner.has_component("thinker"):
-		return {"success": false, "message": "No thinker component"}
-
-	var thinker: ThinkerComponent = owner.get_component("thinker")
-	# Display profile and interval...
-
-func _cmd_set_profile(args: Array) -> Dictionary:
-	# Parse args for -> separator
-	# Update thinker.profile property
-	# Save to vault via AIAgent._save_agent_to_vault(owner)
-	# Broadcast observable behavior (others see "pauses in contemplation")
-```
-
-**Key Design Decisions**:
-- **Full Parity**: Players and AI agents have identical access to these commands
-- **Observable Behavior**: Physical changes broadcast events ("adjusts appearance")
-- **Private Content**: Mental changes are private (others don't see new profile text)
-- **Immediate Persistence**: Changes saved to vault automatically
-- **Self-Modification**: Agents can reprogram their own personality
-
-**Benefits**:
-- Enables AI agent self-awareness and introspection
-- Supports emergent agent evolution
-- Players can customize characters without code changes
-- Testing different personalities is trivial
-- Foundation for future self-improving agents
+Actors view/modify own configuration:
+- `@my-profile`, `@my-description` - View self
+- `@set-profile -> <text>`, `@set-description -> <text>` - Update (persists to vault)
+- Physical changes broadcast observable behavior; mental changes private
 
 ### Help System and Command Metadata
-
-**Pattern**: Centralized command registry with metadata for auto-discovering help system.
-
-**Architecture**:
-1. **CommandMetadata** (command_metadata.gd) - Central registry of all commands
-2. **Help Commands** (actor.gd) - User-facing help interface
-3. **Command Discovery** - Agents can learn their own capabilities
-
-**Command Registry Structure**:
-```gdscript
-const COMMANDS = {
-	"look": {
-		"aliases": ["l"],
-		"category": "social",
-		"syntax": "look",
-		"description": "Observe your current location and who's present",
-		"example": "look"
-	},
-	# ... 29 commands total
-}
-
-const CATEGORIES = {
-	"social": "Interact with others and your environment",
-	"movement": "Navigate through the world",
-	"memory": "Personal notes, recall, and reflection",
-	"self": "Self-awareness and self-modification",
-	"building": "Create and modify world structure",
-	"admin": "Administrative and debugging commands",
-	"query": "Get information about the world and commands"
-}
-```
-
-**Help Commands**:
-- `help` or `?` - Show category overview
-- `help <command>` - Detailed help for specific command (with alias resolution)
-- `help <category>` - List all commands in category
-- `commands` - Compact list of all commands
-
-**AI Agent Integration** (thinker.gd:322-323):
-```gdscript
-command_list = [
-	# ... existing commands ...
-	"help [command|category]: Get help on commands (try 'help social' or 'help say')",
-	"commands: List all available commands"
-]
-```
-
-**Benefits**:
-- Single source of truth for command documentation
-- AI agents can discover their own capabilities
-- Alias resolution automatic (e.g., "help l" shows "look")
-- Easy to maintain as commands are added
-- Supports both player and AI agent learning
-
-**Future Enhancements**:
-- Vault-based help text (editable markdown per-world)
-- True reflection-based discovery (scan for _cmd_* methods)
-- Custom @help annotations in docstrings
-- Dynamic command registration from plugins
+**CommandMetadata** (command_metadata.gd): Central registry of all commands with categories, syntax, examples
+- `help`, `help <command>`, `help <category>`, `commands`
+- Alias resolution automatic
+- AI agents discover capabilities via help system
 
 ### LambdaMOO-Compatible Command Parser
+**CommandParser** (Core/command_parser.gd): Full LambdaMOO spec
+- Quote-aware tokenization: `put "yellow bird" in clock`
+- 14 preposition sets with multi-word support
+- Object resolution: `#-1` (nothing), `#-2` (ambiguous), `#-3` (failed)
+- Keywords: "me", "here"; prefix matching with priority
+- Wildcard verbs: `*`, `foo*`, `foo*bar`
+- Shortcuts: `"` (say), `:` (emote), `;` (eval)
+- Returns `ParsedCommand` with verb, dobj, prep, iobj, reason, args
 
-**Pattern**: Full implementation of the LambdaMOO command parser spec for maximum generosity and precision.
+### Vault-Based Text Management (TextManager)
+**Pattern**: All user-facing text/config in `user://vault/` markdown files
+- Auto-migrates from `res://vault/` defaults on first run
+- Variable substitution: `{actor}`, `{text}`, `{target}`
+- Hot-reloadable via `@reload-text`
+- Dot notation keys: `"commands.category.verb.message_type"`
 
-**Architecture**:
-1. **CommandParser** (Core/command_parser.gd) - Static parser class
-2. **ParsedCommand** - Result structure with all parsed components
-3. **Integration** - Used by both player input and AI agent output
-
-**Parser Features (LambdaMOO Spec Complete)**:
-
-1. **Quote-Aware Tokenization**:
-   - Double quotes group multi-word arguments: `put "yellow bird" in clock`
-   - Backslash escapes: `say He said \"hello\"`
-   - Whitespace handling: `foo "bar mumble" baz` → ["foo", "bar mumble", "baz"]
-
-2. **Prepositional Phrase Parsing**:
-   - Matches 14 preposition sets from MOO spec
-   - Multi-word prepositions: "in front of", "on top of", "out of"
-   - Earliest match wins: `foo as bar to baz` uses "as", not "to"
-   - Three command forms supported:
-	 - `verb` → look
-	 - `verb dobj` → examine bird
-	 - `verb dobj prep iobj` → put bird in cage
-
-3. **Object Resolution with MOO Semantics**:
-   - Special values: `#-1` (nothing), `#-2` (ambiguous), `#-3` (failed)
-   - Direct ID lookup: `#123` format
-   - Keywords: "me" (actor), "here" (location)
-   - Scoped search: location contents + actor inventory first
-   - Prefix matching with priority: exact matches beat prefix matches
-   - Alias support through WorldObject.aliases array
-
-4. **Wildcard Verb Matching**:
-   - `*` matches anything: `*` → any verb
-   - Mid-star: `foo*bar` matches "foo", "foob", "fooba", "foobar"
-   - End-star: `foo*` matches any string starting with "foo"
-   - No star: exact match required
-
-5. **Built-in Shortcuts**:
-   - `"` → `say` (speech)
-   - `:` → `emote` (action)
-   - `;` → `eval` (future: code evaluation)
-
-6. **Reasoning Separator**:
-   - `|` separator extracts optional reasoning: `go garden | Want to explore`
-   - Reasoning is private (stored in memory, not broadcast)
-   - Compatible with all command forms
-
-**Usage Example**:
-```gdscript
-# Parse a complex command
-var parsed: CommandParser.ParsedCommand = CommandParser.parse(
-	'put "yellow bird" in cuckoo clock | Keeping it safe',
-	actor,
-	location
-)
-
-# Result:
-# parsed.verb = "put"
-# parsed.dobjstr = "yellow bird"
-# parsed.dobj = <WorldObject> or #-1/#-2/#-3
-# parsed.prepstr = "in"
-# parsed.iobjstr = "cuckoo clock"
-# parsed.iobj = <WorldObject> or #-1/#-2/#-3
-# parsed.reason = "Keeping it safe"
-# parsed.args = ["yellow bird", "in", "cuckoo", "clock"]
-# parsed.argstr = "yellow bird in cuckoo clock"
-```
-
-**Integration Points**:
-
-1. **Player Input** (game_controller_ui.gd:265-292):
-```gdscript
-func _on_command_submitted(text: String) -> void:
-	var location: WorldObject = player.get_location()
-	var parsed: CommandParser.ParsedCommand = CommandParser.parse(text, player, location)
-	actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
-```
-
-2. **AI Agent Output** (thinker.gd:347-384):
-```gdscript
-func _on_thought_complete(response: String) -> void:
-	var location: WorldObject = owner.get_location()
-	var parsed: CommandParser.ParsedCommand = CommandParser.parse(command_line, owner, location)
-	actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
-```
-
-**Parser API**:
-
-```gdscript
-# Main parsing function
-static func parse(input: String, actor: WorldObject, location: WorldObject) -> ParsedCommand
-
-# Verb matching with wildcards
-static func match_verb(verb_input: String, verb_pattern: String) -> bool
-
-# Preposition set lookup
-static func get_prep_set(prep: String) -> String
-
-# Preposition specifier matching
-static func matches_prep_spec(found_prep: String, spec: String) -> bool
-```
-
-**Benefits**:
-- Unified parsing for players and AI agents
-- Full LambdaMOO compatibility for familiar UX
-- Robust quote and escape handling
-- Generous matching reduces user frustration
-- Extensible for future verb-based programming
-
-**Future Enhancements**:
-- Verb resolution: scan objects for matching verb names
-- Argument specifiers: `this`, `any`, `none` for dobj/iobj
-- $do_command() hook for custom parsing
-- `.program` and built-in MOO commands
-- Flush command and PREFIX/SUFFIX support
-
-**Testing Considerations**:
-- Quote edge cases: `"foo"bar"baz"` should parse correctly
-- Preposition precedence: multiple preps use earliest match
-- Object ambiguity: proper #-2 return when multiple matches
-- Alias matching: both exact and prefix work correctly
-- Wildcard verbs: all three forms (* mid-star, end-star, no-star)
-
-### Vault-Based Text Management (TextManager Pattern)
-
-**Pattern**: All user-facing text and configuration stored in vault markdown files, editable in-game and hot-reloadable.
-
-**Problem**: Hardcoded strings and settings require code changes to customize. Players and world builders need to personalize messages, prompts, and system behavior without touching code.
-
-**Solution**: TextManager daemon loads all text and config from `user://vault/` markdown files with variable substitution, graceful fallbacks, and in-game admin commands.
-
-**Architecture**:
-1. **TextManager Daemon** (Daemons/text_manager.gd) - Singleton text/config registry
-2. **Vault Structure** - Organized markdown files in `user://vault/text/` and `user://vault/config/`
-3. **Auto-Migration** - Copies defaults from `res://vault/` to `user://vault/` on first run
-4. **Variable Substitution** - Template strings with `{placeholder}` syntax
-5. **Hot-Reloading** - Runtime refresh via `@reload-text` command
-
-**Vault Structure**:
+**Structure**:
 ```
 user://vault/
-├── text/
-│   ├── commands/
-│   │   ├── social.md       # say, emote, examine, look
-│   │   ├── movement.md     # go, exits
-│   │   ├── memory.md       # think, dream, note, recall
-│   │   ├── building.md     # dig, create-exit
-│   │   ├── admin.md        # @commands
-│   │   ├── self.md         # @my-profile, @set-profile
-│   │   └── query.md        # who, where, rooms
-│   └── behaviors/
-│       └── actions.md      # Observable behavior templates
-├── config/
-│   ├── ai_defaults.md      # Default AI settings
-│   ├── shoggoth.md         # LLM configuration
-│   └── memory_defaults.md  # Memory system settings
-└── README.md               # User-facing documentation
+├── text/commands/        # Command messages (social.md, movement.md, etc.)
+│   └── behaviors/        # Observable behavior templates
+└── config/               # AI/LLM/memory settings
 ```
 
-**Markdown Format**:
-```markdown
-# Command Messages
-
-## verb_name
-**message_key**: Message text with {variable} substitution
-**another_key**: Another message variant
-
-## another_verb
-**success**: You {action} the {target}.
-**failure**: You can't {action} that.
-```
-
-**Implementation** (actor.gd command example):
+**API**:
 ```gdscript
-func _cmd_say(args: Array) -> Dictionary:
-	if args.size() == 0:
-		return {"success": false, "message": TextManager.get_text("commands.social.say.missing_arg")}
-
-	var message: String = " ".join(args)
-
-	# Broadcast observable behavior
-	var behavior := TextManager.get_text("commands.social.say.behavior", {
-		"actor": owner.name,
-		"text": message
-	})
-	EventWeaver.broadcast_to_location(current_location, {...})
-
-	# Return player-visible result
-	return {
-		"success": true,
-		"message": TextManager.get_text("commands.social.say.success", {"text": message})
-	}
-```
-
-**TextManager API**:
-```gdscript
-# Get text with variable substitution
 TextManager.get_text(key: String, vars: Dictionary = {}) -> String
-
-# Get config value with type inference
 TextManager.get_config(key: String, default: Variant = null) -> Variant
-
-# Format template with variables
-TextManager.format_text(template: String, vars: Dictionary) -> String
-
-# Hot-reload from vault
 TextManager.reload() -> void
 ```
 
-**Admin Commands**:
-- `@reload-text` - Hot-reload all text and config from vault
-- `@show-text <key>` - Inspect text entry with available variables
-- `@show-config <key>` - Inspect config value and type
+---
 
-**Key Patterns**:
-- **Dot Notation Keys**: `"commands.category.verb.message_type"` (e.g., `"commands.social.say.success"`)
-- **Behavior Separation**: Observable behaviors in `behaviors/actions.md` separate from command results
-- **Variable Naming**: Use `{actor}`, `{text}`, `{target}`, `{exit}`, `{destination}`, etc. consistently
-- **Graceful Fallback**: Inline defaults in code if vault files missing
-- **Obsidian Compatible**: Markdown format for external editing in vault viewers
+## Development Workflow
 
-**Auto-Migration Pattern**:
-```gdscript
-func _ensure_vault_structure() -> void:
-	DirAccess.make_dir_recursive_absolute("user://vault/text/commands")
-	DirAccess.make_dir_recursive_absolute("user://vault/config")
+### Collaborative Testing
+Godot 4.4 lacks headless mode—testing is collaborative:
+- **Claude**: Implements, adds debug logging, analyzes logs, proposes fixes
+- **Director**: Runs project, provides visual feedback and log output, tests scenarios
+- **Process**: Claude adds logging → Director tests → Claude analyzes → repeat
 
-	# Copy defaults from res://vault/ to user://vault/ if missing
-	_copy_default_file_if_missing("res://vault/text/commands/social.md", "user://vault/text/commands/social.md")
-	# ... repeat for all default files
-
-func _copy_default_file_if_missing(source_path: String, dest_path: String) -> void:
-	if not FileAccess.file_exists(dest_path) and FileAccess.file_exists(source_path):
-		# Copy file from res:// to user://
-		# Never overwrite existing user customizations
-```
-
-**Benefits**:
-- **In-Game Editing**: World builders customize all text without code changes
-- **Hot-Reloadable**: Changes take effect immediately via `@reload-text`
-- **Obsidian Integration**: Vault files editable in external markdown tools
-- **Player Customization**: Different worlds can have unique voice/tone
-- **AI Agent Context**: Text templates appear in agent prompts when commands execute
-- **Localization Ready**: Foundation for multi-language support
-- **Version Controlled Defaults**: `res://vault/` contains project defaults
-
-**When to Use**:
-- ALL user-facing text (command results, error messages, system prompts)
-- ALL configuration values (think intervals, memory settings, LLM parameters)
-- Observable behavior templates (how actions appear to others)
-- World-specific customizations that should persist with vault
-
-**When NOT to Use**:
-- Debug/log messages (code-level diagnostics)
-- Internal variable names or identifiers
-- Code structure or algorithm logic
-- Transient UI labels (handled by Godot scenes)
+**Key**: Claude cannot run/test directly; all runtime behavior reported by director. Debug logging essential for remote diagnosis.
 
 ---
 
-## Development and Testing Workflow
+## Script Organization
 
-### Collaborative Testing in Godot Editor
+1. File header (##)
+2. extends/class_name
+3. Signals
+4. Constants
+5. @export vars
+6. Public vars
+7. Private vars (_prefix)
+8. Lifecycle methods (_ready, _process)
+9. Public methods
+10. Private methods
+11. Signal callbacks
+12. Static helpers
 
-**Important Context**: Godot 4.4 does not have a headless mode for running projects without graphics. This means that development and testing of Miniworld is a collaborative process between Claude Code and the director (human partner).
-
-**Testing Workflow**:
-1. **Claude Code's Role**:
-   - Analyzes codebase and implements changes
-   - Adds debug logging when investigating issues
-   - Interprets log output and user reports
-   - Proposes fixes based on analysis
-
-2. **Director's Role**:
-   - Runs the project in Godot Editor
-   - Provides visual feedback and observations
-   - Copies log output from Godot's console
-   - Tests specific scenarios and interactions
-   - Reports unexpected behavior with context
-
-3. **Collaborative Debug Process**:
-   - Claude adds comprehensive logging to investigate issues
-   - Director runs project and provides log output
-   - Claude analyzes logs and proposes solutions
-   - Director tests fixes and confirms resolution
-   - Claude removes debug logging once issue is resolved
-
-**Key Principles**:
-- Claude cannot "run" or "test" the project directly
-- All runtime behavior must be observed and reported by the director
-- Debug logging is essential for diagnosing issues remotely
-- Clear communication about what to test and what to observe is critical
-- The director has visual and interactive access that Claude lacks
-
-**Example Debug Workflow**:
-```gdscript
-# Claude adds detailed logging
-print("[Component] _on_added called for: %s" % obj.name)
-print("[Component] Connecting to signal...")
-if signal.connect(handler) == OK:
-	print("[Component] Successfully connected!")
-else:
-	push_warning("[Component] Failed to connect!")
-
-# Director runs project and reports:
-# "I see the _on_added message but no 'Successfully connected' message"
-
-# Claude analyzes and proposes fix based on this information
-```
-
-This collaborative approach ensures that Claude Code can effectively debug and improve the project despite not having direct runtime access.
+**Spacing**: One line between methods, two between major sections
