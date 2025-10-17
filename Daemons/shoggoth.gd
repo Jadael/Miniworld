@@ -599,6 +599,10 @@ func _on_generate_text_finished(result: String) -> void:
 		Routes to _on_init_test_completed if still initializing, otherwise
 		processes as a normal task completion. Applies stop token post-processing
 		before emitting results.
+
+		CRITICAL: Next task processing is deferred to allow EventWeaver broadcasts
+		from callbacks to propagate before building the next agent's prompt. This
+		ensures agents see completed actions from other agents before "zoning out".
 	"""
 	print("[Shoggoth] _on_generate_text_finished called with result length: %d, is_initializing: %s" % [result.length(), is_initializing])
 
@@ -622,7 +626,10 @@ func _on_generate_text_finished(result: String) -> void:
 	_emit_task_completion(result)
 
 	current_task = {}
-	_process_next_task()
+
+	# Defer next task processing to give events time to propagate
+	# This ensures other agents observe completed actions before building their prompts
+	call_deferred("_process_next_task")
 
 func _process_result(result: String) -> String:
 	"""Post-process LLM result to trim at stop tokens.
@@ -818,7 +825,9 @@ func _on_embed_finished(embeddings: Array) -> void:
 		callback.call(embeddings)
 
 	current_task = {}
-	_process_next_task()
+
+	# Defer next task processing to give events time to propagate
+	call_deferred("_process_next_task")
 
 
 func _on_embed_failed(error: String) -> void:

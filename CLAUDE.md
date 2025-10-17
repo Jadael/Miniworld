@@ -477,6 +477,22 @@ func _broadcast_thinking_behavior(location: WorldObject) -> void:
 5. **Broadcast "pauses, deep in thought..."** → observers see agent zone out
 6. Build context and prompt → includes everything up to this moment
 7. Send to LLM → agent is now truly "thinking"
+8. LLM responds → callback executes command → EventWeaver broadcasts result
+9. **Deferred next task** → frame ends, events propagate to all observers
+10. **Next frame** → Shoggoth processes next queued agent (who saw the broadcast)
+
+**Critical Timing Fix** (shoggoth.gd:626-628):
+```gdscript
+# After task completion, defer next task to allow event propagation
+current_task = {}
+call_deferred("_process_next_task")  # Wait one frame for broadcasts to reach observers
+```
+
+**Why This Matters**:
+- Without deferral, next agent's prompt builds **before** seeing previous agent's action
+- EventWeaver broadcasts are synchronous but need frame boundary to propagate
+- Deferring ensures queued agents observe completed actions before "zoning out"
+- Prevents agents from being "one sentence out of sync"
 
 **Benefits**:
 - Agent context includes events that happened while waiting in queue
@@ -484,11 +500,13 @@ func _broadcast_thinking_behavior(location: WorldObject) -> void:
 - No stale "is thinking" messages in prompts
 - Accurate turn-taking visualization
 - Maintains just-in-time prompt freshness
+- **Agents react to each other's completed actions, not partial state**
 
 **When to Use**:
 - Any observable behavior that should happen at prompt-generation time
 - Events that mark the boundary between "observing" and "processing"
 - Side effects that should occur just before LLM inference
+- **Always defer task processing after callbacks that trigger game events**
 
 ### MOO-Style Command Syntax with Reasoning
 

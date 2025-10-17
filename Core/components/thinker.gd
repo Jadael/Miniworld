@@ -455,6 +455,8 @@ func _broadcast_thinking_behavior(location: WorldObject) -> void:
 	Notes:
 		Uses EventWeaver.broadcast_to_location() to notify all actors present.
 		Message is contextual - varies based on agent name/type.
+		Uses "ambient" event type so it's visible to players but NOT recorded
+		in AI agent memories (doesn't add useful context to prompts).
 	"""
 	if not EventWeaver:
 		return
@@ -462,9 +464,9 @@ func _broadcast_thinking_behavior(location: WorldObject) -> void:
 	# Construct observable message
 	var thinking_msg: String = "%s pauses, deep in thought..." % owner.name
 
-	# Broadcast to location (others will see this)
+	# Broadcast to location (visible to players, but not stored in AI memories)
 	EventWeaver.broadcast_to_location(location, {
-		"type": "observation",
+		"type": "ambient",  # Ambient events are visible but not memorable
 		"actor": owner,
 		"message": thinking_msg,
 		"timestamp": Time.get_ticks_msec()

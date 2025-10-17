@@ -174,13 +174,17 @@ func add_memory_from_vault(content: String, metadata: Dictionary, timestamp: int
 
 
 func get_recent_memories(count: int = 64) -> Array[Dictionary]:
-	"""Get the most recent N memories.
+	"""Get the most recent N memories in chronological order.
 
 	Args:
 		count: Number of recent memories to retrieve
 
 	Returns:
-		Array of memory Dictionaries, newest last
+		Array of memory Dictionaries in narrative order (oldest first, newest last)
+
+	Notes:
+		This is the correct order for AI agent prompts - events appear
+		in the order they occurred.
 	"""
 	var start_idx = max(0, memories.size() - count)
 	return memories.slice(start_idx, memories.size())
@@ -321,12 +325,21 @@ func _on_event_observed(event: Dictionary) -> void:
 
 	Args:
 		event: Event Dictionary from EventWeaver
+
+	Notes:
+		Filters out "ambient" events (like thinking indicators) that are
+		visible to players but don't provide useful context for AI agents.
 	"""
+	# Skip ambient events (visible to players but not useful for AI memory)
+	var event_type: String = event.get("type", "unknown")
+	if event_type == "ambient":
+		return
+
 	var memory_content = EventWeaver.format_event(event)
 
 	if memory_content != "":
 		add_memory(memory_content, {
-			"event_type": event.get("type", "unknown")
+			"event_type": event_type
 		})
 
 
@@ -412,28 +425,32 @@ func save_memory_to_vault(owner_name: String, memory_text: String, metadata: Dic
 
 
 func load_memories_from_vault(owner_name: String, max_count: int = 50) -> Array[Dictionary]:
-	"""Load recent memories from the vault.
+	"""Load recent memories from the vault in chronological order.
 
 	Args:
 		owner_name: Name of the agent (for directory path)
 		max_count: Maximum number of memories to load
 
 	Returns:
-		Array of memory Dictionaries loaded from vault
+		Array of memory Dictionaries loaded from vault in narrative order (oldest to newest)
 
 	Notes:
-		Loads most recent memories up to max_count
-		Memories are sorted by timestamp (filename)
+		Loads most recent memories up to max_count.
+		Memories are sorted chronologically (oldest to newest) for narrative order.
+		If there are more than max_count files, skips the oldest ones.
 	"""
 	var agent_path: String = MarkdownVault.AGENTS_PATH + "/" + MarkdownVault.sanitize_filename(owner_name)
 	var mem_path: String = agent_path + "/memories"
 
 	var files: Array[String] = MarkdownVault.list_files(mem_path, ".md")
-	files.sort()  # Sort by timestamp (filename)
-	files.reverse()  # Most recent first
+	files.sort()  # Sort by timestamp (filename) - oldest to newest
 
+	# Load all files (up to max_count) in chronological order
 	var loaded_memories: Array[Dictionary] = []
-	for i in range(min(max_count, files.size())):
+
+	# If there are more files than max_count, skip the oldest ones
+	var start_index: int = max(0, files.size() - max_count)
+	for i in range(start_index, files.size()):
 		var content: String = MarkdownVault.read_file(mem_path + "/" + files[i])
 		if content.is_empty():
 			continue

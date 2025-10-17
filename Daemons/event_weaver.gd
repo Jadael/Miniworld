@@ -172,6 +172,7 @@ func format_event(event: Dictionary) -> String:
 		- "movement": Returns event["message"]
 		- "teleport": Returns event["message"]
 		- "building": Returns event["message"]
+		- "ambient": Returns event["message"] (visible to players, not stored in AI memories)
 		- Unknown types: Returns str(event) for debugging
 	"""
 	match event.get("type", ""):
