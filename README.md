@@ -10,12 +10,10 @@ A LambdaMOO-inspired multi-agent simulation built in Godot 4.4, featuring compos
 4. **Explore the world!**
 
 The game features a dedicated UI with:
-- **Event Scroll** (center) - Main game output
+- **Event Scroll** (center) - Main game output with BBCode formatting
 - **Location Panel** (top right) - Current room description and exits
 - **Who's Here** (bottom right) - Other characters in the room
-- **Command Input** (bottom) - Type your commands here
-
-Press **`~`** for the developer console (debugging/admin commands)
+- **Command Input** (bottom) - Type your commands here with history navigation
 
 ## Basic Commands
 
@@ -87,8 +85,9 @@ help say
 
 - **Up/Down Arrows** - Navigate command history
 - **Enter** - Submit command
-- **~** - Open dev console (for debugging/admin)
-- **?** or **help** - In-game help system
+- **Send Button** - Alternative to pressing Enter
+- **help** or **?** - In-game help system
+- **commands** - Quick list of all available commands
 
 ## Architecture Highlights
 
@@ -99,17 +98,23 @@ help say
 - Event-driven architecture
 
 ### **Core Components**
-- **LocationComponent** - Makes objects into rooms with exits
-- **ActorComponent** - Enables command execution with optional reasoning (29 commands)
-- **MemoryComponent** - Automatic event recording with markdown vault persistence
-- **ThinkerComponent** - AI-powered autonomous decision-making with property-based configuration
-- **VectorStoreComponent** - Semantic search and note-taking capabilities
+- **ActorComponent** - Command execution and event observation (29 commands in 7 categories)
+- **LocationComponent** - Makes objects into navigable rooms with exits
+- **MemoryComponent** - Automatic observation recording with semantic search and integrity checking
+- **ThinkerComponent** - AI decision-making with just-in-time prompt generation
+- **VectorStoreComponent** - Vector embeddings for semantic memory search
 
-### **Daemons (Singletons)**
-- **WorldKeeper** - Object database, lifecycle management, and markdown vault persistence
-- **EventWeaver** - Event propagation to observers
-- **Shoggoth** - LLM interface with task queue management (Ollama backend)
-- **MarkdownVault** - Persistent storage of world state and agent notes
+### **Daemons (Autoloaded Singletons)**
+Loaded in dependency order at startup:
+- **TextManager** - Vault-based text/config system with hot-reload support (loads first)
+- **MarkdownVault** - Persistent world state storage in human-readable markdown
+- **WorldKeeper** - Object registry, unique ID assignment, lifecycle management
+- **EventWeaver** - Event propagation and observer pattern implementation
+- **Shoggoth** - LLM task queue with callback management (Ollama integration)
+- **MemoryBudget** - Dynamic memory allocation based on system resources
+
+Supporting daemon:
+- **OllamaClient** - HTTP client for Ollama API (streaming and embeddings)
 
 ### **File Structure**
 ```
@@ -126,8 +131,11 @@ Core/
 	└── vector_store.gd     # Semantic search
 
 Daemons/
-├── world_keeper.gd         # Object registry and persistence
+├── text_manager.gd         # Vault-based text/config system
+├── world_keeper.gd         # Object registry and lifecycle
 ├── event_weaver.gd         # Event propagation system
+├── shoggoth.gd             # LLM interface daemon with task queue
+├── memory_budget.gd        # Dynamic memory allocation
 ├── markdown_vault.gd       # Persistent storage layer
 └── ollama_client.gd        # Ollama API integration
 
@@ -136,9 +144,9 @@ UI/
 ├── game_ui.tscn            # UI scene layout
 └── shoggoth_settings.gd    # LLM configuration UI
 
-shoggoth.gd                 # LLM interface daemon
-game_controller_ui.gd       # Game logic controller
-demo_world.gd               # World initialization
+game_controller.gd          # Core game loop and initialization
+game_controller_ui.gd       # UI bridge for command I/O
+demo_world.gd               # Demo scene for testing
 ```
 
 ## AI Agents
@@ -161,19 +169,19 @@ Two AI agents are included from the Python prototype:
 
 AI agents use the **ThinkerComponent** with **just-in-time prompt generation** to make autonomous decisions via LLM. This ensures agents always have the freshest memories and observations when making decisions, even if their task has been queued for several seconds.
 
-**To enable AI agents:** See `OLLAMA_SETUP.md` for installation instructions. Once Ollama is running with a model (default: `gemma3:4b`), AI agents will think and act autonomously. Use the `@impersonate <agent>` command to see exactly what an agent perceives and what prompt they receive.
+**To enable AI agents:** See `docs/OLLAMA_SETUP.md` for installation instructions. Once Ollama is running with a model (default: `gemma3:27b` for generation, `embeddinggemma` for semantic search), AI agents will think and act autonomously. Use the `@impersonate <agent>` command to see exactly what an agent perceives and what prompt they receive.
 
-**Command Syntax:** Both players and AI agents use unified MOO-style command syntax: `command args | reason`. Everything after the `|` is optional reasoning that's recorded in memory but not visible to other actors. See `AGENTS.md` for detailed documentation.
+**Command Syntax:** Both players and AI agents use unified MOO-style command syntax: `command args | reason`. Everything after the `|` is optional reasoning that's recorded in memory but not visible to other actors. See `docs/AGENTS.md` for detailed documentation.
 
 ## Current Status
 
 ✅ **Complete:**
 - MOO-like object system with composition-based components
-- Text-based player interface with dedicated UI panels
+- Text-based player interface with three-panel layout (events, location, occupants)
 - Event propagation and observation system (EventWeaver)
-- Memory system with markdown vault persistence
+- Memory system with semantic search and integrity checking
 - AI agents with ThinkerComponent (Eliza and Moss)
-- Ollama integration for LLM-powered AI decisions
+- Ollama integration for LLM-powered AI decisions and embeddings
 - Just-in-time prompt generation for AI agents
 - MOO-style command syntax with optional reasoning (`command | reason`)
 - Mental commands (think, dream, note, recall)
@@ -181,13 +189,15 @@ AI agents use the **ThinkerComponent** with **just-in-time prompt generation** t
 - World building commands (@dig, @exit, @teleport)
 - World persistence to markdown files (@save)
 - Debug tools (@impersonate to view AI perspective)
-- Console integration for debugging
-- Observer messages for "private" verbs (think, dream, note, recall)
-- **Property-based configuration system** (runtime-editable agent settings)
-- **Self-awareness commands** (@my-profile, @set-profile, @my-description, @set-description)
-- **Auto-discovering help system** (help, commands, 7 categories, 29 commands)
-- **Command metadata registry** (centralized documentation)
-- **AI agent self-discovery** (agents can learn their own capabilities via help)
+- Observable behaviors for private commands (others see you thinking, not what you think)
+- Property-based configuration system (runtime-editable agent settings)
+- Self-awareness commands (@my-profile, @set-profile, @my-description, @set-description)
+- Auto-discovering help system (help, commands, 7 categories, 29 commands)
+- Command metadata registry (centralized documentation via CommandMetadata)
+- AI agent self-discovery (agents learn their capabilities via help system)
+- Memory status indicator (lightweight health check shown before each command)
+- Dynamic memory budgeting (scales agent memory based on available system RAM)
+- Vault-based text management (hot-reloadable message templates via TextManager)
 
 ⏳ **In Progress:**
 - Improved AI behavior patterns to reduce repetition
@@ -206,16 +216,27 @@ AI agents use the **ThinkerComponent** with **just-in-time prompt generation** t
 
 ## Technical Documentation
 
-- **`MINIWORLD_ARCHITECTURE.md`** - Detailed architecture documentation
-- **`AGENTS.md`** - AI agent system and ThinkerComponent documentation
-- **`BUILDING.md`** - World building guide with @dig, @exit, @teleport commands
-- **`OLLAMA_SETUP.md`** - Instructions for setting up Ollama LLM backend
-- **`CLAUDE.md`** - Development standards and patterns for contributors
-- **`VAULT_STRUCTURE.md`** - Markdown vault persistence format
-- **`PERSISTENCE_IMPLEMENTATION.md`** - Technical details of save/load system
-- **`HELP_SYSTEM_DESIGN.md`** - Help system architecture and future enhancements
-- **`MVP_SELF_AWARENESS.md`** - Self-awareness and self-modification system documentation
-- **`IMPLEMENTATION_NOTES.md`** - Property-based configuration implementation details
+**Core Documentation:**
+- **`CLAUDE.md`** - Development standards, patterns, and workflow for contributors
+- **`docs/MINIWORLD_ARCHITECTURE.md`** - High-level system architecture overview
+- **`docs/AGENTS.md`** - AI agent system and ThinkerComponent documentation
+
+**Feature Guides:**
+- **`docs/BUILDING.md`** - World building guide with @dig, @exit, @teleport commands
+- **`docs/OLLAMA_SETUP.md`** - Instructions for setting up Ollama LLM backend
+- **`docs/QUICK_FIX_OLLAMA.md`** - Common Ollama connection troubleshooting
+
+**Implementation Details:**
+- **`docs/PERSISTENCE_IMPLEMENTATION.md`** - Technical details of markdown vault save/load system
+- **`docs/VAULT_STRUCTURE.md`** - Markdown vault file format and organization
+- **`docs/HELP_SYSTEM_DESIGN.md`** - Help system architecture and CommandMetadata
+- **`docs/MVP_SELF_AWARENESS.md`** - Self-awareness commands (@my-profile, @set-profile)
+- **`docs/MEMORY_INTEGRITY.md`** - Memory health monitoring and integrity checks
+- **`docs/IMPLEMENTATION_NOTES.md`** - Property-based configuration patterns
+
+**Architecture:**
+- **`docs/SKRODE_ARCHITECTURE.md`** - Detailed architecture documentation (historical)
+- **`docs/TEMPLATE_SYSTEM_DESIGN.md`** - Template-based prompt system (future enhancement)
 
 ## Python Prototype
 
@@ -238,18 +259,13 @@ The `Python prototype/` folder contains the original implementation this Godot v
 ## UI Features
 
 **Game Interface:**
-- Clean, panel-based layout
-- Real-time location updates
-- Dynamic occupant list
-- Scrolling event history
-- Command shortcuts (' for say, : for emote, l for look)
-
-**Dev Console (~ key):**
-- Full command history
-- Tab autocomplete
-- Script execution
-- Math calculator
-- Debug commands
+- Clean, panel-based layout with three main areas
+- Real-time location panel showing room name, description, and exits
+- Dynamic occupants panel listing other actors present
+- Scrolling event history with BBCode formatting support
+- Command input with history navigation (Up/Down arrows)
+- Memory status indicator showing system health before each command
+- Command shortcuts built into ActorComponent (' for say, : for emote, l for look)
 
 ## Key Features Deep Dive
 
