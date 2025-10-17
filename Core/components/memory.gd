@@ -895,7 +895,7 @@ func get_integrity_status() -> Dictionary:
 
 		# Warn if no memories recorded in past hour (3600 seconds)
 		if age_seconds > 3600:
-			status_result.warnings.append("No recent memory activity (last: %d min ago)" % (age_seconds / 60))
+			status_result.warnings.append("No recent memory activity (last: %d min ago)" % int(age_seconds / 60.0))
 
 	# Warn if approaching capacity
 	if status_result.capacity_used > 0.9:

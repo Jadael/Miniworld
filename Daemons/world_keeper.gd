@@ -353,7 +353,7 @@ func save_world_to_vault() -> bool:
 
 		# Save memories if character has memory component
 		if obj.has_component("memory"):
-			var memory_comp: MemoryComponent = obj.get_component("memory") as MemoryComponent
+			var memory_comp: MemoryComponent = obj.get_component("memory") as MemoryComponent #FIXME: Parser Error: Could not parse global class "MemoryComponent" from "res://Core/components/memory.gd".
 			memory_comp.save_all_memories_to_vault(obj.name)
 
 	# Create world state snapshot

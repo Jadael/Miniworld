@@ -589,41 +589,53 @@ func _on_generate_failed(error: String) -> void:
 	print("[Shoggoth] _on_generate_failed called with error: %s" % error)
 	_handle_task_error("Ollama generation failed: " + error)
 
-func _on_generate_text_finished(result: String) -> void:
+func _on_generate_text_finished(result: Dictionary) -> void:
 	"""Signal handler for ollama_client.generate_finished.
 
 	Args:
-		result: The generated text response from the LLM
+		result: Dictionary with keys:
+			- content: String - The final answer/output from the model
+			- thinking: String - Chain-of-thought reasoning (empty if not a reasoning model)
 
 	Notes:
 		Routes to _on_init_test_completed if still initializing, otherwise
 		processes as a normal task completion. Applies stop token post-processing
 		before emitting results.
 
+		For reasoning models, the thinking content is stored in the agent's memory
+		as if it were a THINK event, making the agent's internal reasoning visible
+		and allowing it to be used for debugging or learning.
+
 		CRITICAL: Next task processing is deferred to allow EventWeaver broadcasts
 		from callbacks to propagate before building the next agent's prompt. This
 		ensures agents see completed actions from other agents before "zoning out".
 	"""
-	print("[Shoggoth] _on_generate_text_finished called with result length: %d, is_initializing: %s" % [result.length(), is_initializing])
+	var content: String = result.get("content", "")
+	var thinking: String = result.get("thinking", "")
+
+	print("[Shoggoth] _on_generate_text_finished called with content length: %d, thinking length: %d, is_initializing: %s" % [content.length(), thinking.length(), is_initializing])
 
 	# If we're still initializing, this is the init test response
 	if is_initializing:
-		result = _process_result(result)
-		_on_init_test_completed(result)
+		content = _process_result(content)
+		_on_init_test_completed(content)
 		return
 
 	# Normal task completion
 	if current_task.is_empty():
 		print("[Shoggoth] WARNING: Received result but current_task is empty!")
-		#Chronicler.log_event(self, "unexpected_task_completion", {
-		#	"result_length": result.length(),
-		#	"result": result
-		#})
 		return
 
 	print("[Shoggoth] Processing task completion for task: %s" % current_task.get("id", "unknown"))
-	result = _process_result(result)
-	_emit_task_completion(result)
+	content = _process_result(content)
+
+	# Store thinking content for potential use by callbacks (agents can save it to memory)
+	if thinking != "":
+		print("[Shoggoth] Task included %d chars of chain-of-thought reasoning" % thinking.length())
+		# Pass both content and thinking to callback/signal
+		_emit_task_completion(content, thinking)
+	else:
+		_emit_task_completion(content, "")
 
 	current_task = {}
 
@@ -658,30 +670,37 @@ func _process_result(result: String) -> String:
 	return result
 
 
-func _emit_task_completion(result: String) -> void:
+func _emit_task_completion(result: String, thinking: String = "") -> void:
 	"""Emit the task_completed signal with the current task's result.
 
 	Args:
 		result: The processed text response from the LLM
+		thinking: Optional chain-of-thought reasoning content (for reasoning models)
 
 	Notes:
 		Also checks for and invokes any registered callbacks for this task_id,
 		then removes them from pending_callbacks.
+
+		For reasoning models, the thinking content is passed to callbacks as a
+		second parameter if the callback accepts it. This allows agents to save
+		the chain-of-thought reasoning to their memory.
 	"""
 	var task_id = current_task.get("id", "unknown")
-	#Chronicler.log_event(self, "task_completed", {
-	#	"task_id": task_id,
-	#	"result_length": result.length(),
-	#	"result": result
-	#})
 
 	# Invoke callback if one is registered
 	if pending_callbacks.has(task_id):
 		var callback: Callable = pending_callbacks[task_id]
 		pending_callbacks.erase(task_id)
-		callback.call(result)
 
-	# Emit signal for other listeners
+		# Pass thinking content if available (for reasoning models)
+		# Most callbacks only expect result, but we can pass thinking as optional 2nd param
+		# The callback can choose to use it or ignore it
+		if thinking != "":
+			callback.call(result, thinking)
+		else:
+			callback.call(result)
+
+	# Emit signal for other listeners (signal still uses String for backward compat)
 	task_completed.emit(task_id, result)
 
 func cancel_task(task_id: String) -> bool:

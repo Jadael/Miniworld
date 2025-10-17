@@ -52,6 +52,12 @@ const FALLBACK_TEXT := {
 	"commands.social.examine.missing_arg": "Examine what?",
 	"commands.social.examine.not_found": "You don't see '{target}' here.",
 	"commands.social.examine.behavior": "{actor} examines {target}.",
+	"commands.movement.go.missing_arg": "Go where?",
+	"commands.movement.go.no_location": "You are nowhere.",
+	"commands.movement.go.no_exits": "This location has no exits.",
+	"commands.movement.go.no_exit": "There is no exit '{exit}' here.",
+	"commands.movement.go.departure": "{actor} leaves to {destination}.",
+	"commands.movement.go.arrival": "{actor} arrives from {origin}.",
 	"behaviors.actions.look": "{actor} looks around.",
 	"behaviors.actions.think": "{actor} pauses in thought.",
 }
@@ -108,7 +114,7 @@ func get_text(key: String, vars: Dictionary = {}) -> String:
 	var template: String = _text_data.get(key, FALLBACK_TEXT.get(key, ""))
 
 	if template.is_empty():
-		push_warning("[TextManager] Missing text key: %s" % key)
+		push_warning("[TextManager] Missing text key: %s" % key) #FIXME: W 0:00:01:987   Integer division, decimal part will be discarded.
 		return ""
 
 	return format_text(template, vars)
@@ -308,11 +314,11 @@ func _parse_config_file(file_path: String, category: String) -> void:
 		push_warning("[TextManager] Cannot open config file: %s" % file_path)
 		return
 
-	var line_num := 0 #FIXME: W 0:00:01:402   The local variable "line_num" is declared but never used in the block. If this is intended, prefix it with an underscore: "_line_num".
+	var _line_num := 0
 
 	while not file.eof_reached():
 		var line := file.get_line().strip_edges()
-		line_num += 1
+		_line_num += 1
 
 		# Skip empty lines, headers, descriptions, and horizontal rules
 		if line.is_empty() or line.begins_with("#") or line.begins_with("_") or line.begins_with("---"):
@@ -393,7 +399,12 @@ func _copy_default_file_if_missing(source_path: String, dest_path: String) -> vo
 
 	# Check if source exists
 	if not FileAccess.file_exists(source_path):
-		push_warning("[TextManager] Default file not found: %s" % source_path)
+		# On web platform, res:// files may not be accessible the same way
+		# This is expected - fallback system will handle missing files
+		if OS.has_feature("web"):
+			print("[TextManager] Vault file not available on web (using fallbacks): %s" % source_path)
+		else:
+			push_warning("[TextManager] Default file not found: %s" % source_path)
 		return
 
 	# Create parent directory if needed

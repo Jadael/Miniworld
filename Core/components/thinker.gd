@@ -402,7 +402,7 @@ func _construct_prompt(context: Dictionary) -> String:
 
 	return prompt
 
-func _on_thought_complete(response: String) -> void:
+func _on_thought_complete(response: String, thinking: String = "") -> void:
 	"""Handle LLM response and execute the decided action.
 
 	Parses the LLM response using LambdaMOO-compatible parser:
@@ -410,15 +410,27 @@ func _on_thought_complete(response: String) -> void:
 	- Supports prepositions: put bird in cage
 	- Extracts reasoning: command | reason
 
+	For reasoning models (like deepseek-r1), the thinking parameter contains
+	the chain-of-thought reasoning process, which is stored in memory as a
+	private "THINK" event (like command reasoning after |).
+
 	Args:
 		response: The LLM's text response containing decision
+		thinking: Optional chain-of-thought reasoning from reasoning models
 
 	Notes:
 		Resets is_thinking flag to allow next think cycle.
 		Emits thought_completed signal after command execution.
 		Uses CommandParser for consistent, robust parsing.
+		Stores thinking content in memory if present (makes COT visible in agent's history).
 	"""
 	is_thinking = false
+
+	# Store chain-of-thought reasoning in memory if present
+	if thinking != "" and owner.has_component("memory"):
+		var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
+		memory_comp.add_memory("[THINK] %s" % thinking)
+		print("[Thinker] %s recorded %d chars of chain-of-thought reasoning" % [owner.name, thinking.length()])
 
 	# Extract first non-empty line from response (in case LLM adds extra text)
 	var command_line: String = response.strip_edges()

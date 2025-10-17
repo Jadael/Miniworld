@@ -20,8 +20,10 @@
 extends Node
 
 ## Emitted when text generation completes successfully
-## result: The generated text extracted from the API response
-signal generate_finished(result: String)
+## result: Dictionary with keys:
+##   - content: String - The final answer/output from the model
+##   - thinking: String - Chain-of-thought reasoning (empty if not a reasoning model or think=false)
+signal generate_finished(result: Dictionary)
 
 ## Emitted when generation fails due to network, HTTP, or parsing errors
 ## error: Human-readable error message describing the failure
@@ -127,11 +129,15 @@ func generate(prompt: String, options: Dictionary = {}) -> void:
 			- temperature: float (overrides default temperature)
 			- num_predict: int (max tokens to generate)
 			- stop: Array[String] (stop sequences)
+			- think: bool (enable chain-of-thought reasoning for reasoning models)
 
 	Notes:
 		This is a non-streaming request. The entire response is received at once.
 		Result is emitted via generate_finished signal, errors via generate_failed.
 		If already generating, logs a warning and ignores the new request.
+
+		For reasoning models (like deepseek-r1), set think: true to get both
+		the reasoning process and final answer.
 	"""
 	if is_generating:
 		push_warning("OllamaClient: Already generating, request queued")
@@ -156,13 +162,15 @@ func generate(prompt: String, options: Dictionary = {}) -> void:
 		body.options.num_predict = options.num_predict
 	if options.has("stop"):
 		body.stop = options.stop
+	if options.has("think"):
+		body.think = options.think
 
 	var json_body = JSON.stringify(body)
 	var headers = ["Content-Type: application/json"]
 
 	var url = host + "/api/generate"
 	print("[OllamaClient] Sending generate request to: %s" % url)
-	print("[OllamaClient] Model: %s, Stream: %s" % [model, body.stream])
+	print("[OllamaClient] Model: %s, Stream: %s, Think: %s" % [model, body.stream, body.get("think", false)])
 	var err = http_request.request(url, headers, HTTPClient.METHOD_POST, json_body)
 
 	if err != OK:
@@ -181,11 +189,15 @@ func chat(messages: Array, options: Dictionary = {}) -> void:
 			- temperature: float (overrides default temperature)
 			- num_predict: int (max tokens to generate)
 			- stop: Array[String] (stop sequences)
+			- think: bool (enable chain-of-thought reasoning for reasoning models)
 
 	Notes:
 		The chat endpoint supports conversation history and system prompts.
 		Messages should be ordered chronologically. System messages typically
 		come first to define behavior. Non-streaming mode is used.
+
+		For reasoning models (like deepseek-r1), set think: true to get both
+		the reasoning process and final answer.
 	"""
 	if is_generating:
 		push_warning("OllamaClient: Already generating, request queued")
@@ -210,13 +222,15 @@ func chat(messages: Array, options: Dictionary = {}) -> void:
 		body.options.num_predict = options.num_predict
 	if options.has("stop"):
 		body.stop = options.stop
+	if options.has("think"):
+		body.think = options.think
 
 	var json_body = JSON.stringify(body)
 	var headers = ["Content-Type: application/json"]
 
 	var url = host + "/api/chat"
 	print("[OllamaClient] Sending chat request to: %s" % url)
-	print("[OllamaClient] Model: %s, Messages: %d, Stream: %s" % [model, messages.size(), body.stream])
+	print("[OllamaClient] Model: %s, Messages: %d, Stream: %s, Think: %s" % [model, messages.size(), body.stream, body.get("think", false)])
 	var err = http_request.request(url, headers, HTTPClient.METHOD_POST, json_body)
 
 	if err != OK:
@@ -284,17 +298,29 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 
 
 func _on_generate_completed(data: Dictionary) -> void:
-	"""Handle generate/chat endpoint response."""
-	var response_text = ""
+	"""Handle generate/chat endpoint response.
+
+	Extracts both the final answer (content) and chain-of-thought reasoning (thinking)
+	from the response. For reasoning models like deepseek-r1, the thinking field contains
+	the model's internal reasoning process.
+	"""
+	var response_content: String = ""
+	var thinking_content: String = ""
 
 	# Check for /api/generate response format
 	if data.has("response"):
-		response_text = data.response
+		response_content = data.response
 		print("[OllamaClient] Extracted response from /api/generate format")
 
 	# Check for /api/chat response format
 	elif data.has("message") and data.message.has("content"):
-		response_text = data.message.content
+		response_content = data.message.content
+
+		# Extract thinking/reasoning content if present (for reasoning models)
+		if data.message.has("thinking"):
+			thinking_content = data.message.thinking
+			print("[OllamaClient] Extracted thinking content (length: %d)" % thinking_content.length())
+
 		print("[OllamaClient] Extracted response from /api/chat format")
 
 	else:
@@ -302,8 +328,13 @@ func _on_generate_completed(data: Dictionary) -> void:
 		generate_failed.emit("Unexpected response format")
 		return
 
-	print("[OllamaClient] Emitting generate_finished with response length: %d" % response_text.length())
-	generate_finished.emit(response_text)
+	var result: Dictionary = {
+		"content": response_content,
+		"thinking": thinking_content
+	}
+
+	print("[OllamaClient] Emitting generate_finished with content length: %d, thinking length: %d" % [response_content.length(), thinking_content.length()])
+	generate_finished.emit(result)
 
 
 func embed(texts: Variant) -> void:
