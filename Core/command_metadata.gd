@@ -203,6 +203,22 @@ const COMMANDS = {
 		"example": "@edit-interval Moss 20.0",
 		"admin": true
 	},
+	"@llm-status": {
+		"aliases": [],
+		"category": "admin",
+		"syntax": "@llm-status",
+		"description": "Check LLM connection status and configuration",
+		"example": "@llm-status",
+		"admin": true
+	},
+	"@llm-config": {
+		"aliases": [],
+		"category": "admin",
+		"syntax": "@llm-config [host|model|temperature|test] [value]",
+		"description": "Configure LLM settings at runtime (host, model, temperature)",
+		"example": "@llm-config model llama3.2:3b",
+		"admin": true
+	},
 
 	# === Query Commands ===
 	"who": {

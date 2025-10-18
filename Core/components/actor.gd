@@ -180,6 +180,10 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 			result = _cmd_show_config(args)
 		"@memory-status":
 			result = _cmd_memory_status(args)
+		"@llm-status":
+			result = _cmd_llm_status(args)
+		"@llm-config":
+			result = _cmd_llm_config(args)
 		_:
 			result = {"success": false, "message": "Unknown command: %s\nTry 'help' for available commands." % command}
 
@@ -1764,3 +1768,141 @@ func _cmd_memory_status(_args: Array) -> Dictionary:
 	var report: String = memory_comp.format_integrity_report()
 
 	return {"success": true, "message": report}
+
+
+func _cmd_llm_status(_args: Array) -> Dictionary:
+	"""@LLM-STATUS command - Display LLM connection status (admin command).
+
+	Shows current LLM configuration and connection status including:
+	- Availability (connected/disconnected)
+	- Host URL and model name
+	- Temperature and max tokens settings
+	- Queue status
+	- Last error details (if any)
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): Always true
+		- message (String): Formatted status report
+
+	Notes:
+		This is an admin command for diagnosing LLM connectivity issues.
+		Use this after seeing connection failed errors.
+	"""
+	if not Shoggoth:
+		return {"success": false, "message": "Shoggoth daemon not available"}
+
+	var status: Dictionary = Shoggoth.get_status()
+
+	var message: String = "═══ LLM Status ═══\n\n"
+
+	# Connection status
+	if status.is_available:
+		message += "[color=green]✓ Connected[/color]\n\n"
+	else:
+		message += "[color=red]✗ Disconnected[/color]\n\n"
+
+	# Configuration
+	message += "Host: %s\n" % status.host
+	message += "Model: %s\n" % status.model
+	message += "Temperature: %.2f\n" % status.temperature
+	message += "Max Tokens: %d\n\n" % status.max_tokens
+
+	# Queue status
+	message += "Queue Length: %d task(s)\n" % status.queue_length
+	message += "Busy: %s\n\n" % ("Yes" if status.is_busy else "No")
+
+	# Last error (if any)
+	if status.last_error.size() > 0:
+		message += "[color=yellow]Last Error:[/color]\n"
+		message += "Type: %s\n" % status.last_error.type
+		message += "Message: %s\n" % status.last_error.message
+		message += "Suggestion: %s\n\n" % status.last_error.suggested_action
+		var timestamp: float = status.last_error.timestamp
+		var time_ago: int = int(Time.get_unix_time_from_system() - timestamp)
+		message += "(occurred %d seconds ago)\n\n" % time_ago
+
+	message += "Use @llm-config to modify settings"
+
+	return {"success": true, "message": message}
+
+
+func _cmd_llm_config(args: Array) -> Dictionary:
+	"""@LLM-CONFIG command - Configure LLM settings (admin command).
+
+	Allows changing LLM configuration at runtime without restarting.
+
+	Syntax:
+		@llm-config host <url>        - Set Ollama server URL
+		@llm-config model <name>      - Set model name
+		@llm-config temperature <num> - Set temperature (0.0-1.0)
+		@llm-config test              - Test current connection
+		@llm-config                   - Show current configuration
+
+	Args:
+		args: Array with subcommand and value
+
+	Returns:
+		Dictionary with success status and message
+
+	Notes:
+		This is an admin command for runtime configuration.
+		Changes are saved immediately and persist across restarts.
+		Changing host or model triggers re-initialization.
+	"""
+	if not Shoggoth:
+		return {"success": false, "message": "Shoggoth daemon not available"}
+
+	# No args - show current config
+	if args.size() == 0:
+		var status: Dictionary = Shoggoth.get_status()
+		var message: String = "═══ LLM Configuration ═══\n\n"
+		message += "Host: %s\n" % status.host
+		message += "Model: %s\n" % status.model
+		message += "Temperature: %.2f\n" % status.temperature
+		message += "Max Tokens: %d\n\n" % status.max_tokens
+		message += "Usage:\n"
+		message += "  @llm-config host <url>\n"
+		message += "  @llm-config model <name>\n"
+		message += "  @llm-config temperature <0.0-1.0>\n"
+		message += "  @llm-config test\n"
+		return {"success": true, "message": message}
+
+	var subcommand: String = args[0].to_lower()
+
+	match subcommand:
+		"host":
+			if args.size() < 2:
+				return {"success": false, "message": "Usage: @llm-config host <url>\nExample: @llm-config host http://localhost:11434"}
+			var new_host: String = args[1]
+			Shoggoth.set_host(new_host)
+			return {"success": true, "message": "Host set to: %s\nRe-initializing connection..." % new_host}
+
+		"model":
+			if args.size() < 2:
+				return {"success": false, "message": "Usage: @llm-config model <name>\nExample: @llm-config model llama3.2:3b"}
+			var new_model: String = args[1]
+			Shoggoth.set_model(new_model)
+			return {"success": true, "message": "Model set to: %s\nRe-initializing connection..." % new_model}
+
+		"temperature", "temp":
+			if args.size() < 2:
+				return {"success": false, "message": "Usage: @llm-config temperature <0.0-1.0>\nExample: @llm-config temperature 0.7"}
+			var temp_str: String = args[1]
+			if not temp_str.is_valid_float():
+				return {"success": false, "message": "Temperature must be a number between 0.0 and 1.0"}
+			var new_temp: float = temp_str.to_float()
+			if new_temp < 0.0 or new_temp > 1.0:
+				return {"success": false, "message": "Temperature must be between 0.0 and 1.0"}
+			Shoggoth.set_temperature(new_temp)
+			return {"success": true, "message": "Temperature set to: %.2f" % new_temp}
+
+		"test":
+			Shoggoth.test_connection()
+			return {"success": true, "message": "Testing LLM connection...\nWatch for status messages."}
+
+		_:
+			return {"success": false, "message": "Unknown subcommand: %s\nTry: host, model, temperature, test" % subcommand}

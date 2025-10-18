@@ -72,6 +72,11 @@ func _ready() -> void:
 	# because LineEdit's text_submitted signal has focus issues in Godot
 	send_button.pressed.connect(_on_send_pressed)
 
+	# Connect to Shoggoth signals for LLM initialization visibility
+	if Shoggoth:
+		Shoggoth.initialization_status.connect(_on_llm_initialization_status)
+		Shoggoth.llm_connection_failed.connect(_on_llm_connection_failed)
+
 	# Focus on input for immediate interaction
 	command_input.grab_focus()
 
@@ -88,7 +93,7 @@ func _ready() -> void:
 	add_event("[color=dim_gray]•[/color] [b]Setup:[/b] Install from [color=light_blue][url]https://ollama.com[/url][/color]")
 	add_event("[color=dim_gray]•[/color] [b]Default:[/b] http://localhost:11434 (auto-configured)")
 	add_event("[color=dim_gray]•[/color] [b]Models:[/b] Recommend llama3.2 or similar chat model")
-	add_event("[color=dim_gray]•[/color] Type [b][color=light_green]settings[/color][/b] to configure connection if needed")
+	add_event("[color=dim_gray]•[/color] Type [b][color=light_green]@llm-status[/color][/b] to check LLM status")
 	add_event("")
 	add_event("")
 	add_event("[color=yellow][b]📍 NAVIGATION[/b][/color]")
@@ -335,3 +340,44 @@ func update_memory_status(status: String) -> void:
 		in green (if OK) or yellow (if warnings detected).
 	"""
 	memory_status = status
+
+
+func _on_llm_initialization_status(status_message: String) -> void:
+	"""Handle LLM initialization status updates from Shoggoth.
+
+	Args:
+		status_message: Status update string from Shoggoth (e.g., "Testing model...")
+
+	Notes:
+		Displays status in system message style for visibility during startup.
+		This makes LLM init less mysterious and shows what's happening.
+	"""
+	add_system_message(status_message)
+
+
+func _on_llm_connection_failed(error_type: String, error_message: String, suggested_action: String) -> void:
+	"""Handle LLM connection failure from Shoggoth.
+
+	Args:
+		error_type: Type of error ("connection", "model_missing", etc.)
+		error_message: Human-readable error description
+		suggested_action: Suggestion for how to fix the issue
+
+	Notes:
+		Displays a formatted error box with the problem and suggested fix.
+		Game continues to function (player can still use non-AI commands).
+	"""
+	add_event("")
+	add_event("[color=red]╔════════════════════════════════════════════════╗[/color]")
+	add_event("[color=red]║  [b]LLM CONNECTION FAILED[/b]                           ║[/color]")
+	add_event("[color=red]╚════════════════════════════════════════════════╝[/color]")
+	add_event("")
+	add_error("[b]Problem:[/b] %s" % error_message)
+	add_event("[color=yellow][b]Fix:[/b] %s[/color]" % suggested_action)
+	add_event("")
+	add_event("[color=gray]Note: You can still use basic commands (look, go, say, etc.)[/color]")
+	add_event("[color=gray]AI agents will not think until LLM is available.[/color]")
+	add_event("")
+	add_event("[color=dim_gray]Use [b]@llm-status[/b] to check connection status[/color]")
+	add_event("[color=dim_gray]Use [b]@llm-config[/b] to configure LLM settings[/color]")
+	add_event("")

@@ -2,6 +2,8 @@
 
 A LambdaMOO-inspired multi-agent simulation built in Godot 4.4, featuring composition-based object design and interactive text gameplay.
 
+![screenshot](screenshot.png)
+
 ## Quick Start
 
 1. **Open in Godot 4.4**

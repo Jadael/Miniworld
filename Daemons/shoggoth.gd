@@ -37,6 +37,16 @@ signal task_failed(task_id: String, error: String)
 ## llm_success: True if LLM backend is available and responding, false otherwise
 signal models_initialized(llm_success: bool)
 
+## Emitted when LLM connection fails with detailed error information
+## error_type: String indicating failure type ("connection", "model_missing", "timeout", "unknown")
+## error_message: Human-readable error description
+## suggested_action: String suggesting how to fix (e.g., "Start Ollama", "Pull model")
+signal llm_connection_failed(error_type: String, error_message: String, suggested_action: String)
+
+## Emitted during initialization with status updates
+## status_message: Human-readable status update (e.g., "Testing connection to Ollama...")
+signal initialization_status(status_message: String)
+
 ## Path to the configuration file storing Ollama settings
 const CONFIG_FILE = "user://shoggoth_config.cfg"
 
@@ -70,6 +80,9 @@ var is_processing_task: bool = false
 
 ## True during the initialization phase (testing LLM connectivity)
 var is_initializing: bool = false
+
+## Stores last error details for diagnostic reporting
+var last_error: Dictionary = {}
 
 ## Configuration manager for persistent Ollama settings
 var config: ConfigFile
@@ -158,6 +171,7 @@ func _initialize_models() -> void:
 
 	Notes:
 		Emits models_initialized signal with success/failure status when complete.
+		Emits initialization_status signal with progress updates for UI visibility.
 		Sets is_initializing flag to prevent duplicate initialization attempts.
 	"""
 	if is_initializing:
@@ -167,6 +181,7 @@ func _initialize_models() -> void:
 
 	# Skip if ollama_client not available
 	if ollama_client == null:
+		initialization_status.emit("⚠ LLM initialization skipped - client not available")
 		push_warning("Shoggoth: Skipping LLM initialization - ollama_client not available")
 		is_initializing = false
 		models_initialized.emit(false)
@@ -174,6 +189,8 @@ func _initialize_models() -> void:
 
 	var ollama_host = config.get_value("ollama", "host", "http://localhost:11434")
 	var model_name = config.get_value("ollama", "model", "gemma3:4b")
+
+	initialization_status.emit("Initializing LLM connection to %s..." % ollama_host)
 
 	_configure_ollama_client(ollama_host, model_name)
 	_run_initialization_test()
@@ -207,7 +224,11 @@ func _run_initialization_test() -> void:
 		The response is handled by _on_generate_text_finished which detects
 		initialization mode and routes to _on_init_test_completed instead of
 		normal task completion handling.
+		Emits initialization_status for UI visibility.
 	"""
+	var model_name = config.get_value("ollama", "model", "gemma3:4b") if config else "unknown"
+	initialization_status.emit("Testing model '%s'..." % model_name)
+
 	print("[Shoggoth] Starting initialization test with prompt: '%s'" % INIT_TEST_PROMPT)
 
 	if ollama_client == null:
@@ -228,10 +249,18 @@ func _on_init_test_completed(result: String) -> void:
 		Considers initialization successful if we receive any non-empty response.
 		Emits models_initialized signal to notify other systems. If tasks were
 		queued during initialization, begins processing them now.
+		Emits initialization_status for UI visibility.
 	"""
 	print("[Shoggoth] Init test completed with result: '%s'" % result)
 	var llm_success = result.strip_edges() != ""
 	print("[Shoggoth] LLM success: %s" % llm_success)
+
+	if llm_success:
+		var model_name = config.get_value("ollama", "model", "unknown") if config else "unknown"
+		initialization_status.emit("✓ LLM initialized successfully (model: %s)" % model_name)
+	else:
+		initialization_status.emit("✗ LLM initialization failed - received empty response")
+
 	models_initialized.emit(llm_success)
 
 	#Chronicler.log_event(self, "models_initialized", {
@@ -585,8 +614,21 @@ func _on_generate_failed(error: String) -> void:
 
 	Args:
 		error: Error message from the Ollama client
+
+	Notes:
+		If this is during initialization, analyzes the error and emits
+		detailed diagnostic information via llm_connection_failed signal.
 	"""
 	print("[Shoggoth] _on_generate_failed called with error: %s" % error)
+
+	# If we're initializing, this is a critical failure - analyze and emit detailed diagnostics
+	if is_initializing:
+		initialization_status.emit("✗ LLM initialization failed")
+		_analyze_and_report_error(error)
+		is_initializing = false
+		models_initialized.emit(false)
+		return
+
 	_handle_task_error("Ollama generation failed: " + error)
 
 func _on_generate_text_finished(result: Dictionary) -> void:
@@ -892,6 +934,122 @@ func get_config_file_path() -> String:
 		Useful for debugging or providing users with config file location
 	"""
 	return ProjectSettings.globalize_path(CONFIG_FILE)
+
+
+func _analyze_and_report_error(error: String) -> void:
+	"""Analyze an LLM error and emit detailed diagnostic information.
+
+	Parses error messages to determine the specific failure type and provides
+	actionable suggestions for resolution.
+
+	Args:
+		error: Raw error message from Ollama client
+
+	Notes:
+		Emits llm_connection_failed signal with categorized error information.
+		Stores error details in last_error for later inspection.
+	"""
+	var error_type: String = "unknown"
+	var error_message: String = error
+	var suggested_action: String = "Check Ollama installation and try again"
+
+	var error_lower: String = error.to_lower()
+
+	# Categorize error types
+	if "connection" in error_lower or "refused" in error_lower or "timeout" in error_lower:
+		error_type = "connection"
+		error_message = "Cannot connect to Ollama server"
+		suggested_action = "Start Ollama with 'ollama serve' or check that it's running"
+	elif "404" in error_lower or "not found" in error_lower or "model" in error_lower:
+		error_type = "model_missing"
+		var model_name = config.get_value("ollama", "model", "unknown") if config else "unknown"
+		error_message = "Model '%s' not found in Ollama" % model_name
+		suggested_action = "Pull the model with 'ollama pull %s' or choose a different model" % model_name
+	elif "401" in error_lower or "403" in error_lower or "unauthorized" in error_lower:
+		error_type = "auth"
+		error_message = "Authentication failed"
+		suggested_action = "Check API credentials or host configuration"
+	elif "timeout" in error_lower:
+		error_type = "timeout"
+		error_message = "Request timed out"
+		suggested_action = "Ollama may be overloaded or unresponsive - try restarting it"
+
+	# Store for diagnostic commands
+	last_error = {
+		"type": error_type,
+		"message": error_message,
+		"suggested_action": suggested_action,
+		"raw_error": error,
+		"timestamp": Time.get_unix_time_from_system()
+	}
+
+	print("[Shoggoth] LLM Connection Failed - Type: %s, Message: %s" % [error_type, error_message])
+	print("[Shoggoth] Suggested Action: %s" % suggested_action)
+
+	llm_connection_failed.emit(error_type, error_message, suggested_action)
+
+
+func get_status() -> Dictionary:
+	"""Get current Shoggoth status for diagnostic purposes.
+
+	Returns:
+		Dictionary containing:
+		- is_available (bool): Whether LLM is available and responding
+		- is_busy (bool): Whether currently processing tasks
+		- queue_length (int): Number of pending tasks
+		- host (String): Current Ollama host URL
+		- model (String): Current model name
+		- last_error (Dictionary): Last error details (if any)
+
+	Notes:
+		Used by admin commands and setup wizards to inspect LLM state.
+	"""
+	var status: Dictionary = {
+		"is_available": ollama_client != null,
+		"is_busy": is_busy(),
+		"queue_length": get_queue_length(),
+		"host": config.get_value("ollama", "host", "unknown") if config else "unknown",
+		"model": config.get_value("ollama", "model", "unknown") if config else "unknown",
+		"temperature": config.get_value("ollama", "temperature", 0.9) if config else 0.9,
+		"max_tokens": config.get_value("ollama", "max_tokens", 32765) if config else 32765,
+		"last_error": last_error
+	}
+	return status
+
+
+func set_host(host: String) -> void:
+	"""Change the Ollama server URL.
+
+	Args:
+		host: New host URL (e.g., "http://localhost:11434")
+
+	Notes:
+		Saves to config and triggers re-initialization.
+	"""
+	if not config:
+		push_error("Shoggoth: Cannot set host - config not initialized")
+		return
+
+	config.set_value("ollama", "host", host)
+	config.save(CONFIG_FILE)
+	call_deferred("_initialize_models")
+
+
+func set_temperature(temp: float) -> void:
+	"""Change the LLM temperature setting.
+
+	Args:
+		temp: Temperature value (0.0 - 1.0, higher = more creative)
+
+	Notes:
+		Saves to config immediately, no re-initialization needed.
+	"""
+	if not config:
+		push_error("Shoggoth: Cannot set temperature - config not initialized")
+		return
+
+	config.set_value("ollama", "temperature", temp)
+	config.save(CONFIG_FILE)
 
 
 # TODO: Add support for streaming responses from Ollama
