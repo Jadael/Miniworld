@@ -68,15 +68,81 @@ func remove_exit(exit_name: String) -> void:
 
 
 func get_exit(exit_name: String) -> WorldObject:
-	"""Get the destination for an exit.
+	"""Get the destination for an exit with generous matching.
 
 	Args:
 		exit_name: Name of the exit to look up
 
 	Returns:
 		Destination WorldObject, or null if exit doesn't exist
+
+	Notes:
+		Performs generous fuzzy matching:
+		- Exact match: "The Lobby" matches "the lobby"
+		- Article-insensitive: "Lobby" matches "the lobby"
+		- Partial word match: "Lobby" matches "The Grand Lobby"
+		- Prefix match: "Lob" matches "Lobby"
 	"""
-	return exits.get(exit_name.to_lower(), null)
+	var search = exit_name.to_lower().strip_edges()
+	if search.is_empty():
+		return null
+
+	# Try exact match first (fastest)
+	if exits.has(search):
+		return exits[search]
+
+	# Helper function for fuzzy matching
+	var matches = func(search_str: String, target_str: String) -> bool:
+		var search_l = search_str.to_lower()
+		var target_l = target_str.to_lower()
+
+		# Exact match
+		if target_l == search_l:
+			return true
+
+		# Remove common articles for matching
+		var articles = ["the ", "a ", "an "]
+		for article in articles:
+			if target_l.begins_with(article):
+				var target_without_article = target_l.substr(article.length())
+				if target_without_article == search_l:
+					return true
+				# Also try prefix match without article
+				if target_without_article.begins_with(search_l):
+					return true
+
+		# Prefix match
+		if target_l.begins_with(search_l):
+			return true
+
+		# Word-boundary partial match (e.g., "Lobby" matches "The Grand Lobby")
+		var search_words = search_l.split(" ")
+		var target_words = target_l.split(" ")
+
+		# Single word search matching any word in target
+		if search_words.size() == 1:
+			for target_word in target_words:
+				if target_word == search_l or target_word.begins_with(search_l):
+					return true
+
+		# Multi-word search: all search words must match (in order)
+		if search_words.size() > 1:
+			var search_idx = 0
+			for target_word in target_words:
+				if search_idx < search_words.size():
+					if target_word == search_words[search_idx] or target_word.begins_with(search_words[search_idx]):
+						search_idx += 1
+			if search_idx == search_words.size():
+				return true
+
+		return false
+
+	# Try fuzzy matching on all exit names
+	for exit_key in exits.keys():
+		if matches.call(search, exit_key):
+			return exits[exit_key]
+
+	return null
 
 
 func get_exits() -> Dictionary:

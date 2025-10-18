@@ -17,7 +17,7 @@
 ##   - But content remains private (can't see what they're thinking/writing)
 ## - SILENT commands (no observable behavior):
 ##   - who, where, rooms (information queries)
-##   - @save, @impersonate (admin/debug utilities)
+##   - @save, @quit, @impersonate (admin/debug utilities)
 ##
 ## Dependencies:
 ## - ComponentBase: Base class for all components
@@ -94,6 +94,157 @@ func _update_location() -> void:
 	current_location = owner.get_location()
 
 
+func _levenshtein_distance(s1: String, s2: String) -> int:
+	"""Calculate Levenshtein distance (edit distance) between two strings.
+
+	Args:
+		s1: First string
+		s2: Second string
+
+	Returns:
+		Minimum number of single-character edits (insertions, deletions, substitutions)
+
+	Notes:
+		Used for fuzzy command matching to catch typos from LLMs.
+	"""
+	var len1 = s1.length()
+	var len2 = s2.length()
+
+	# Create distance matrix
+	var matrix = []
+	for i in range(len1 + 1):
+		var row = []
+		row.resize(len2 + 1)
+		matrix.append(row)
+
+	# Initialize first row and column
+	for i in range(len1 + 1):
+		matrix[i][0] = i
+	for j in range(len2 + 1):
+		matrix[0][j] = j
+
+	# Calculate distances
+	for i in range(1, len1 + 1):
+		for j in range(1, len2 + 1):
+			var cost = 0 if s1[i - 1] == s2[j - 1] else 1
+			matrix[i][j] = min(
+				matrix[i - 1][j] + 1,      # deletion
+				min(
+					matrix[i][j - 1] + 1,  # insertion
+					matrix[i - 1][j - 1] + cost  # substitution
+				)
+			)
+
+	return matrix[len1][len2]
+
+
+func _get_all_valid_commands() -> Array[String]:
+	"""Get list of all valid commands.
+
+	Returns:
+		Array of all command strings that execute_command recognizes
+
+	Notes:
+		Keep in sync with execute_command match statement.
+		Used by both prefix matching and fuzzy matching.
+	"""
+	return [
+		"look", "l",
+		"go",
+		"say", "\"",
+		"emote", ":",
+		"examine", "x",
+		"take", "get",
+		"drop",
+		"inventory", "inv", "i",
+		"help",
+		"commands",
+		"who",
+		"where",
+		"whisper",
+		"note",
+		"recall",
+		"dream",
+		"rooms",
+		"@dig",
+		"@exit",
+		"@teleport", "@tel",
+		"@my-profile",
+		"@my-description",
+		"@set-profile",
+		"@set-description",
+		"@reload-text",
+		"@show-text",
+		"@show-config",
+		"@memory-status",
+		"@llm-status",
+		"@llm-config"
+	]
+
+
+func _find_prefix_match(prefix: String) -> String:
+	"""Find a command that matches the given prefix (MOO-style).
+
+	Args:
+		prefix: The partial command string to match
+
+	Returns:
+		The full command if exactly one match, empty string if none or ambiguous
+
+	Notes:
+		MOO-style prefix matching: "exa" → "examine", "inv" → "inventory"
+		Requires unambiguous match (only one command starts with prefix).
+		Exact matches are preferred (so "l" → "look" not "look" or "l").
+	"""
+	var valid_commands = _get_all_valid_commands()
+	var prefix_lower = prefix.to_lower()
+
+	# Check for exact match first
+	for cmd in valid_commands:
+		if cmd.to_lower() == prefix_lower:
+			return cmd
+
+	# Check for prefix matches
+	var matches: Array[String] = []
+	for cmd in valid_commands:
+		if cmd.to_lower().begins_with(prefix_lower):
+			matches.append(cmd)
+
+	# Return match only if unambiguous
+	if matches.size() == 1:
+		return matches[0]
+
+	return ""  # No match or ambiguous
+
+
+func _find_closest_command(typo: String) -> String:
+	"""Find the closest valid command to a typo using fuzzy matching.
+
+	Args:
+		typo: The mistyped command
+
+	Returns:
+		The closest valid command, or empty string if no close match
+
+	Notes:
+		Uses Levenshtein distance with a threshold of 2 edits.
+		Helps LLMs by auto-correcting common typos like "eexamine" → "examine".
+	"""
+	var valid_commands = _get_all_valid_commands()
+
+	var best_match: String = ""
+	var best_distance: int = 999
+	var threshold: int = 2  # Allow up to 2 character edits
+
+	for cmd in valid_commands:
+		var distance = _levenshtein_distance(typo.to_lower(), cmd.to_lower())
+		if distance < best_distance and distance <= threshold:
+			best_distance = distance
+			best_match = cmd
+
+	return best_match
+
+
 func execute_command(command: String, args: Array = [], reason: String = "") -> Dictionary:
 	"""Execute a command as this actor and return the result.
 
@@ -152,6 +303,8 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 			result = _cmd_teleport(args)
 		"@save":
 			result = _cmd_save(args)
+		"@quit":
+			result = _cmd_quit(args)
 		"@impersonate", "@imp":
 			result = _cmd_impersonate(args)
 		"@edit-profile":
@@ -185,7 +338,20 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 		"@llm-config":
 			result = _cmd_llm_config(args)
 		_:
-			result = {"success": false, "message": "Unknown command: %s\nTry 'help' for available commands." % command}
+			# Try prefix matching first (MOO-style), then fuzzy matching for typos
+			var suggestion = _find_prefix_match(command)
+			if suggestion == "":
+				suggestion = _find_closest_command(command)
+
+			if suggestion != "":
+				# Auto-correct and retry
+				print("[Actor] Auto-corrected: '%s' → '%s'" % [command, suggestion])
+				result = execute_command(suggestion, args, reason)
+				# Add note about auto-correction to message (only for player feedback)
+				if result.has("message") and owner.has_flag("is_player"):
+					result.message = "[Auto-corrected '%s' → '%s']\n%s" % [command, suggestion, result.message]
+			else:
+				result = {"success": false, "message": "Unknown command: %s\nTry 'help' for available commands." % command}
 
 	# Reconstruct full command line from verb and args for caching
 	var full_command: String = command
@@ -250,7 +416,7 @@ func _cmd_go(args: Array) -> Dictionary:
 	a look command at the destination.
 
 	Args:
-		args: Array containing the exit name as the first element
+		args: Array containing the exit name (may be multi-word like "The Lobby")
 
 	Returns:
 		Dictionary with:
@@ -264,7 +430,8 @@ func _cmd_go(args: Array) -> Dictionary:
 	if current_location == null:
 		return {"success": false, "message": TextManager.get_text("commands.movement.go.no_location")}
 
-	var exit_name: String = args[0]
+	# Join all args to support multi-word exit names like "The Lobby"
+	var exit_name: String = " ".join(args)
 
 	# Verify location has location component with exits
 	var location_comp = current_location.get_component("location")
@@ -380,7 +547,7 @@ func _cmd_examine(args: Array) -> Dictionary:
 	its detailed description. Broadcasts an examine action to observers.
 
 	Args:
-		args: Array with target name as first element
+		args: Array with target name (may be multi-word like "The Traveler")
 
 	Returns:
 		Dictionary with:
@@ -391,7 +558,8 @@ func _cmd_examine(args: Array) -> Dictionary:
 	if args.size() == 0:
 		return {"success": false, "message": TextManager.get_text("commands.social.examine.missing_arg")}
 
-	var target_name: String = args[0]
+	# Join all args to support multi-word object names like "The Traveler"
+	var target_name: String = " ".join(args)
 
 	# Search for target in current location
 	var target: WorldObject = WorldKeeper.find_object_by_name(target_name, current_location)
@@ -891,8 +1059,6 @@ func _cmd_exit(args: Array) -> Dictionary:
 	if args.size() < 3:
 		return {"success": false, "message": "Usage: @exit <exit name> to <destination room name or #ID>"}
 
-	var exit_name: String = args[0]
-
 	# Find "to" keyword in arguments
 	var to_index: int = -1
 	for i in range(args.size()):
@@ -902,6 +1068,12 @@ func _cmd_exit(args: Array) -> Dictionary:
 
 	if to_index == -1:
 		return {"success": false, "message": "Usage: @exit <exit name> to <destination>"}
+
+	# Extract exit name from arguments before "to" (support multi-word like "The Lobby")
+	var exit_parts: Array[String] = []
+	for i in range(to_index):
+		exit_parts.append(args[i])
+	var exit_name: String = " ".join(exit_parts)
 
 	# Extract destination name from arguments after "to"
 	var dest_parts: Array[String] = []
@@ -1072,6 +1244,31 @@ func _cmd_save(_args: Array) -> Dictionary:
 		}
 
 
+func _cmd_quit(_args: Array) -> Dictionary:
+	"""@QUIT command - Save the world and gracefully exit the application.
+
+	Triggers WorldKeeper.save_and_quit() which saves the world state
+	and then quits the application.
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): Always true
+		- message (String): Confirmation message
+
+	Notes:
+		This is an admin command for gracefully exiting the application.
+		The world will be saved before exiting to prevent data loss.
+	"""
+	return {
+		"success": true,
+		"message": "Saving world and exiting...",
+		"quit": true  # Special flag to trigger quit
+	}
+
+
 func _cmd_impersonate(args: Array) -> Dictionary:
 	"""@IMPERSONATE command - See the game from an AI agent's perspective (debug command).
 
@@ -1125,17 +1322,7 @@ func _cmd_impersonate(args: Array) -> Dictionary:
 	else:
 		message += "Alone here\n\n"
 
-	if context.recent_memories.size() > 0:
-		message += "[Recent Events - what %s has been doing and seeing]\n\n" % agent_name
-		for memory in context.recent_memories:
-			var mem_dict: Dictionary = memory as Dictionary
-			# Display memory content as-is to preserve transcript format ("> command\nresult")
-			message += "%s\n" % mem_dict.content
-		message += "\n"
-	else:
-		message += "[No recent memories]\n\n"
-
-	message += "[Full LLM Prompt]\n"
+	message += "[Full LLM Prompt - includes profile, commands, notes, and recent memories]\n"
 	message += "────────────────────────────────────────────────────────────\n"
 	message += "%s" % prompt
 	message += "────────────────────────────────────────────────────────────\n"

@@ -20,6 +20,10 @@
 ## - Reasoning after | is private (stored in memory, not visible to others)
 ## - Broadcasts "pauses, deep in thought..." just-in-time when prompt is built (visible to others)
 ## - Broadcasting happens at the last moment so agent sees all events until they "zone out"
+## - Anti-repetition: Retries if agent generates exact same command as previous turn (prevents loops)
+##   - Compares full command: verb + args + reason
+##   - Up to MAX_REPETITION_RETRIES attempts (default 2)
+##   - Allows intentional repetition if LLM persists after retries
 
 extends ComponentBase
 class_name ThinkerComponent
@@ -39,6 +43,16 @@ var think_timer: float = 0.0
 ## Whether the agent is currently waiting for an LLM response
 ## Prevents overlapping think requests
 var is_thinking: bool = false
+
+## Last command executed (for detecting exact repetition)
+## Format: "verb args|reason" - compared to prevent unintended loops
+var last_command_full: String = ""
+
+## Retry counter for when agent repeats exact same command
+var repetition_retry_count: int = 0
+
+## Maximum retries when agent repeats exact same command
+const MAX_REPETITION_RETRIES: int = 2
 
 
 ## Emitted when the agent completes a thought and executes a command
@@ -383,6 +397,12 @@ func _on_thought_complete(response: String, thinking: String = "") -> void:
 	the chain-of-thought reasoning process, which is stored in memory as a
 	private "THINK" event (like command reasoning after |).
 
+	Anti-Repetition Logic:
+	If the agent generates EXACTLY the same command (verb + args + reason) as
+	the previous turn, triggers an immediate retry (up to MAX_REPETITION_RETRIES).
+	This prevents unintended loops while allowing intentional repetitive behavior
+	(e.g., if LLM deliberately repeats after max retries, it's allowed).
+
 	Args:
 		response: The LLM's text response containing decision
 		thinking: Optional chain-of-thought reasoning from reasoning models
@@ -392,6 +412,7 @@ func _on_thought_complete(response: String, thinking: String = "") -> void:
 		Emits thought_completed signal after command execution.
 		Uses CommandParser for consistent, robust parsing.
 		Stores thinking content in memory if present (makes COT visible in agent's history).
+		Detects exact repetition and retries to encourage varied behavior.
 	"""
 	is_thinking = false
 
@@ -419,6 +440,39 @@ func _on_thought_complete(response: String, thinking: String = "") -> void:
 			var location: WorldObject = owner.get_location()
 			var parsed: CommandParser.ParsedCommand = CommandParser.parse(command_line, owner, location)
 
+			# Build full command string for comparison (verb + args + reason)
+			var args_str: String = " ".join(parsed.args) if parsed.args.size() > 0 else ""
+			var current_command_full: String = "%s %s|%s" % [parsed.verb, args_str, parsed.reason]
+
+			# Check if this is EXACTLY the same as the last command
+			if current_command_full == last_command_full and last_command_full != "":
+				# Exact repetition detected!
+				repetition_retry_count += 1
+				print("[Thinker] %s repeated exact same command (%d/%d): %s" % [
+					owner.name,
+					repetition_retry_count,
+					MAX_REPETITION_RETRIES,
+					current_command_full
+				])
+
+				if repetition_retry_count <= MAX_REPETITION_RETRIES:
+					# Try thinking again immediately
+					print("[Thinker] %s retrying with fresh thought..." % owner.name)
+					is_thinking = false
+					think_timer = 0.0  # Think again immediately
+					return  # Skip execution, wait for next think cycle
+				else:
+					# Max retries reached, let it execute (probably intentional repetition)
+					print("[Thinker] %s max retries reached, allowing repetition" % owner.name)
+					repetition_retry_count = 0  # Reset for next time
+			else:
+				# Different command, reset retry counter
+				repetition_retry_count = 0
+
+			# Store this command for next comparison
+			last_command_full = current_command_full
+
+			# Execute the command
 			actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
 			thought_completed.emit(command_line, parsed.reason)
 

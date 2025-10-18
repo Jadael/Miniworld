@@ -10,6 +10,13 @@
 ## - Object lifecycle (creation, destruction)
 ## - Global object queries (find by type, location, etc.)
 ## - Persistence (save/load world state)
+## - Auto-save (periodic saves when world state changes)
+##
+## Auto-save Features:
+## - Automatic periodic saves every 5 minutes (configurable)
+## - Dirty flag tracking - only saves when changes detected
+## - Tracks object creation/destruction, property changes, location changes
+## - Graceful shutdown with save on quit
 
 extends Node
 
@@ -42,8 +49,23 @@ var nexus: WorldObject = null
 ## The default starting location (#1) - where new actors spawn
 var root_room: WorldObject = null
 
+## Auto-save configuration
+
+## Auto-save timer for periodic saves
+var auto_save_timer: Timer = null
+
+## Interval between auto-saves in seconds (default: 5 minutes)
+var auto_save_interval: float = 300.0
+
+## Whether auto-save is enabled
+var auto_save_enabled: bool = true
+
+## Dirty flag tracking if world state has changed since last save
+var world_is_dirty: bool = false
+
 func _ready() -> void:
 	_initialize_world()
+	_setup_auto_save()
 
 func _initialize_world() -> void:
 	"""Create the foundational objects that form the basis of the world.
@@ -70,6 +92,67 @@ func _initialize_world() -> void:
 
 	print("WorldKeeper: Initialized with nexus (#0) and root room (#1)")
 
+func _setup_auto_save() -> void:
+	"""Set up the auto-save timer for periodic world state persistence.
+
+	Creates a Timer node that triggers save_world_to_vault() at regular intervals.
+	Interval is configurable via auto_save_interval property.
+	"""
+	auto_save_timer = Timer.new()
+	auto_save_timer.name = "AutoSaveTimer"
+	auto_save_timer.wait_time = auto_save_interval
+	auto_save_timer.one_shot = false
+	auto_save_timer.autostart = auto_save_enabled
+	auto_save_timer.timeout.connect(_on_auto_save_timeout)
+	add_child(auto_save_timer)
+
+	print("WorldKeeper: Auto-save enabled (interval: %.1f seconds)" % auto_save_interval)
+
+func _on_auto_save_timeout() -> void:
+	"""Handle auto-save timer timeout.
+
+	Only saves if world_is_dirty flag is true to avoid unnecessary writes.
+	"""
+	if world_is_dirty and auto_save_enabled:
+		print("[WorldKeeper] Auto-save triggered")
+		save_world_to_vault()
+		world_is_dirty = false
+
+func mark_world_dirty() -> void:
+	"""Mark the world as modified, requiring a save.
+
+	Called when any significant world state change occurs:
+	- Objects created/destroyed
+	- Object properties changed
+	- Object locations changed
+	"""
+	world_is_dirty = true
+
+func set_auto_save_enabled(enabled: bool) -> void:
+	"""Enable or disable auto-save.
+
+	Args:
+		enabled: Whether auto-save should be active
+	"""
+	auto_save_enabled = enabled
+	if auto_save_timer:
+		if enabled:
+			auto_save_timer.start()
+		else:
+			auto_save_timer.stop()
+	print("WorldKeeper: Auto-save %s" % ("enabled" if enabled else "disabled"))
+
+func set_auto_save_interval(interval: float) -> void:
+	"""Change the auto-save interval.
+
+	Args:
+		interval: New interval in seconds (minimum 30 seconds)
+	"""
+	auto_save_interval = max(30.0, interval)
+	if auto_save_timer:
+		auto_save_timer.wait_time = auto_save_interval
+	print("WorldKeeper: Auto-save interval set to %.1f seconds" % auto_save_interval)
+
 ## Object creation
 
 func create_object(_obj_name: String = "object", display_name: String = "object") -> WorldObject:
@@ -93,6 +176,13 @@ func create_object(_obj_name: String = "object", display_name: String = "object"
 
 	objects[obj_id] = obj
 	object_created.emit(obj)
+
+	# Connect to object signals for auto-save tracking
+	obj.property_changed.connect(_on_object_property_changed)
+	obj.parent_changed.connect(_on_object_parent_changed)
+
+	# Mark world as dirty when object is created
+	mark_world_dirty()
 
 	return obj
 
@@ -148,6 +238,9 @@ func destroy_object(obj_id: String) -> bool:
 	# Remove from registry
 	objects.erase(obj_id)
 	object_destroyed.emit(obj_id)
+
+	# Mark world as dirty when object is destroyed
+	mark_world_dirty()
 
 	return true
 
@@ -361,6 +454,7 @@ func save_world_to_vault() -> bool:
 
 	if success:
 		world_saved.emit()
+		world_is_dirty = false
 		print("WorldKeeper: World saved to vault at %s" % MarkdownVault.get_vault_path())
 
 	return success
@@ -883,3 +977,40 @@ func get_stats() -> Dictionary:
 		"total_rooms": get_all_rooms().size(),
 		"next_id": next_object_number
 	}
+
+## Signal handlers for auto-save tracking
+
+func _on_object_property_changed(_property_name: String, _old_value: Variant, _new_value: Variant) -> void:
+	"""Handle property changes on WorldObjects.
+
+	Args:
+		_property_name: Name of the property that changed
+		_old_value: Previous value
+		_new_value: New value
+
+	Notes:
+		Marks world as dirty to trigger auto-save
+	"""
+	mark_world_dirty()
+
+func _on_object_parent_changed(_old_parent: WorldObject, _new_parent: WorldObject) -> void:
+	"""Handle parent/location changes on WorldObjects.
+
+	Args:
+		_old_parent: Previous parent object
+		_new_parent: New parent object
+
+	Notes:
+		Marks world as dirty to trigger auto-save
+	"""
+	mark_world_dirty()
+
+func save_and_quit() -> void:
+	"""Perform a final save before quitting the application.
+
+	Ensures all world state is persisted before exit.
+	"""
+	print("[WorldKeeper] Saving world before quit...")
+	save_world_to_vault()
+	print("[WorldKeeper] World saved. Ready to quit.")
+	get_tree().quit()

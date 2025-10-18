@@ -164,8 +164,13 @@ func _setup_player() -> void:
 	# Connect actor events to UI handlers (always needed, even for loaded player)
 	var actor_comp: ActorComponent = player.get_component("actor") as ActorComponent
 	if actor_comp:
-		actor_comp.command_executed.connect(_on_command_executed)
-		actor_comp.event_observed.connect(_on_event_observed)
+		# Prevent duplicate connections
+		if not actor_comp.command_executed.is_connected(_on_command_executed):
+			actor_comp.command_executed.connect(_on_command_executed)
+			print("[GameControllerUI] Connected player command_executed signal")
+		if not actor_comp.event_observed.is_connected(_on_event_observed):
+			actor_comp.event_observed.connect(_on_event_observed)
+			print("[GameControllerUI] Connected player event_observed signal")
 
 func _setup_ai_agents() -> void:
 	"""Setup AI agents - load from vault or create defaults.
@@ -191,7 +196,10 @@ func _setup_ai_agents() -> void:
 	for agent in ai_agents:
 		if agent.has_component("actor"):
 			var actor_comp: ActorComponent = agent.get_component("actor") as ActorComponent
-			actor_comp.command_executed.connect(_on_ai_command_executed)
+			# Prevent duplicate connections
+			if not actor_comp.command_executed.is_connected(_on_ai_command_executed):
+				actor_comp.command_executed.connect(_on_ai_command_executed)
+				print("[GameControllerUI] Connected %s command_executed signal" % agent.name)
 
 
 func _create_default_agents() -> void:
@@ -320,6 +328,13 @@ func _on_command_executed(_command: String, result: Dictionary, _reason: String)
 		message = message.replace("🔧", "")
 
 		ui.add_event(message)
+
+		# Handle quit command
+		if result.has("quit") and result.quit:
+			# Defer quit to allow message to be displayed
+			await get_tree().create_timer(0.5).timeout
+			WorldKeeper.save_and_quit()
+			return
 
 		# Update location panel if command affected location
 		if result.has("location"):

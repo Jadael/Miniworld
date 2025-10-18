@@ -106,10 +106,19 @@ func add_component(component_name: String, component: Variant) -> void:
 
 	Notes:
 		If the component has an _on_added(object) method, it will be called.
+		If replacing an existing component, calls _on_removed() first to clean up.
 		Emits component_added signal.
 	"""
 	if component_name in components:
-		push_warning("WorldObject: Replacing existing component '%s' on object %s" % [component_name, id])
+		push_warning("WorldObject: Replacing existing component '%s' on object %s (%s)" % [component_name, name, id])
+		print("[WorldObject DEBUG] Stack trace for component replacement:")
+		print_stack()
+
+		# Clean up old component before replacing (prevents duplicate signal connections)
+		var old_component = components[component_name]
+		if old_component.has_method("_on_removed"):
+			old_component._on_removed(self)
+			print("[WorldObject DEBUG] Called _on_removed() on old '%s' component" % component_name)
 
 	components[component_name] = component
 
@@ -375,7 +384,7 @@ func get_flag(flag_name: String, default: bool = false) -> bool:
 
 
 func matches_name(test_name: String) -> bool:
-	"""Check if this object matches a given name (case-insensitive).
+	"""Check if this object matches a given name (case-insensitive, generous).
 
 	Args:
 		test_name: The name to test against
@@ -385,14 +394,72 @@ func matches_name(test_name: String) -> bool:
 
 	Notes:
 		Used for command parsing to match player input to objects.
-		Performs case-insensitive comparison.
+		Performs case-insensitive comparison with generous matching:
+		- Exact match: "The Lobby" matches "The Lobby"
+		- Partial word match: "Lobby" matches "The Lobby"
+		- Prefix match: "Lob" matches "Lobby"
+		- Article-insensitive: "Traveler" matches "The Traveler"
 	"""
-	var test_lower = test_name.to_lower()
-	if name.to_lower() == test_lower:
-		return true
-	for alias in aliases:
-		if alias.to_lower() == test_lower:
+	var test_lower = test_name.to_lower().strip_edges()
+	if test_lower.is_empty():
+		return false
+
+	# Helper function to check if search matches target with generous rules
+	var matches = func(search: String, target: String) -> bool:
+		var search_l = search.to_lower()
+		var target_l = target.to_lower()
+
+		# Exact match
+		if target_l == search_l:
 			return true
+
+		# Remove common articles for matching
+		var articles = ["the ", "a ", "an "]
+		for article in articles:
+			if target_l.begins_with(article):
+				var target_without_article = target_l.substr(article.length())
+				if target_without_article == search_l:
+					return true
+				# Also try prefix match without article
+				if target_without_article.begins_with(search_l):
+					return true
+
+		# Prefix match
+		if target_l.begins_with(search_l):
+			return true
+
+		# Word-boundary partial match (e.g., "Lobby" matches "The Lobby")
+		# Split both into words and check if all search words are in target
+		var search_words = search_l.split(" ")
+		var target_words = target_l.split(" ")
+
+		# Single word search matching any word in target
+		if search_words.size() == 1:
+			for target_word in target_words:
+				if target_word == search_l or target_word.begins_with(search_l):
+					return true
+
+		# Multi-word search: all search words must match (in order)
+		if search_words.size() > 1:
+			var search_idx = 0
+			for target_word in target_words:
+				if search_idx < search_words.size():
+					if target_word == search_words[search_idx] or target_word.begins_with(search_words[search_idx]):
+						search_idx += 1
+			if search_idx == search_words.size():
+				return true
+
+		return false
+
+	# Check name
+	if matches.call(test_lower, name):
+		return true
+
+	# Check aliases
+	for alias in aliases:
+		if matches.call(test_lower, alias):
+			return true
+
 	return false
 
 
