@@ -73,8 +73,8 @@
 ```gdscript
 var pending_callbacks: Dictionary = {}  # task_id → callback
 func generate_async(prompt: Variant, profile: String, callback: Callable) -> String:
-    pending_callbacks[task_id] = callback
-    # Later: callback.call(result); pending_callbacks.erase(task_id)
+	pending_callbacks[task_id] = callback
+	# Later: callback.call(result); pending_callbacks.erase(task_id)
 ```
 **DON'T**: Temporary signal connections (cause null reference errors)
 
@@ -88,11 +88,24 @@ func generate_async(prompt: Variant, profile: String, callback: Callable) -> Str
 **Solution**: Pass Callable to `Shoggoth.generate_async()` that builds prompt when task executes
 ```gdscript
 var prompt_generator: Callable = func() -> String:
-    _broadcast_thinking_behavior(location)  # Observable at right moment
-    return _construct_prompt(_build_context())  # Fresh context
+	_broadcast_thinking_behavior(location)  # Observable at right moment
+	return _construct_prompt(_build_context())  # Fresh context
 Shoggoth.generate_async(prompt_generator, profile, callback)
 ```
 **Critical**: Shoggoth defers next task after completion to allow event propagation
+
+### Base Model Support
+**Pattern**: Universal prompt structure and API mode optimized for base models while maintaining instruct model effectiveness
+- **API Mode**: Uses `/api/generate` instead of `/api/chat` for simpler, faster single-line responses
+- **Prompt structure**: Identity → Commands → Notes → Transcript → Situation → `> ` prompt
+- **Key insight**: Transcript placement as few-shot examples - agent's own recent commands show format
+- **Command prompt**: `"Your next command:\n> "` guides next-token prediction toward valid command
+- **Stop token**: `["\n"]` passed to Ollama for server-side early termination
+- **Response parser**: Extracts first non-empty line (defense in depth)
+- **Universal**: No model type detection needed—works for base, instruct, and reasoning models
+**Why transcript placement matters**: Base models learn from immediate context. Putting recent commands right before the prompt shows the exact format expected, turning memories into natural few-shot examples.
+**Why generate mode**: Single-response use cases don't need chat API overhead. Generate mode is faster and simpler for both base and instruct models.
+**Example**: `comma-v0.1-2t` (public-domain-only base model) generates valid commands consistently with this structure
 
 ### MOO-Style Command Syntax with Reasoning
 **Syntax**: `command args | reason`
@@ -105,10 +118,10 @@ Shoggoth.generate_async(prompt_generator, profile, callback)
 ```gdscript
 # Set defaults in _on_added
 if not owner.has_property("thinker.profile"):
-    owner.set_property("thinker.profile", default_profile)
+	owner.set_property("thinker.profile", default_profile)
 # Access via getters
 func get_profile() -> String:
-    return owner.get_property("thinker.profile") if owner else default
+	return owner.get_property("thinker.profile") if owner else default
 ```
 **Naming**: `component.setting` (e.g., `thinker.profile`, `thinker.think_interval`)
 

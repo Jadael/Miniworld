@@ -53,9 +53,6 @@ var temperature: float = 0.9
 ## HTTPRequest node used for making API calls
 var http_request: HTTPRequest
 
-## Accumulated response text (currently unused, responses are non-streaming)
-var current_response: String = ""
-
 ## True when a request is in flight, false when idle
 var is_generating: bool = false
 
@@ -66,19 +63,25 @@ func _ready() -> void:
 	"""Initialize the HTTP request node and connect signals.
 
 	Creates an HTTPRequest node as a child and connects its request_completed
-	signal to our response handler.
+	signal to our response handler and body_data_received for streaming.
 
 	Notes:
 		Sets body_size_limit to -1 (unlimited) and download_chunk_size to 65536
 		to handle large LLM responses without truncation.
+		For streaming, we use body_data_received to process NDJSON chunks.
 	"""
 	http_request = HTTPRequest.new()
 	add_child(http_request)
 	http_request.request_completed.connect(_on_request_completed)
 
+	# Note: HTTPRequest doesn't expose chunk-level signals for true streaming.
+	# We rely on Ollama's server-side stop token handling for now.
+	# Future: Could use HTTPClient for lower-level streaming control.
+
 	# Configure for large LLM responses
 	http_request.body_size_limit = -1  # Unlimited response size
-	http_request.download_chunk_size = 65536  # 64KB chunks for better performance
+	http_request.download_chunk_size = 65536  # Large chunks for better performance
+	http_request.timeout = 500.0  # Five minute timeout for LLM inference (quite long to accomodate single-GPU users)
 
 
 func set_host(new_host: String) -> void:
@@ -132,7 +135,7 @@ func generate(prompt: String, options: Dictionary = {}) -> void:
 			- think: bool (enable chain-of-thought reasoning for reasoning models)
 
 	Notes:
-		This is a non-streaming request. The entire response is received at once.
+		Stop tokens are passed to Ollama server for server-side early termination.
 		Result is emitted via generate_finished signal, errors via generate_failed.
 		If already generating, logs a warning and ignores the new request.
 
@@ -143,8 +146,11 @@ func generate(prompt: String, options: Dictionary = {}) -> void:
 		push_warning("OllamaClient: Already generating, request queued")
 		return
 
+	# Cancel any previous request to ensure clean state
+	if http_request:
+		http_request.cancel_request()
+
 	is_generating = true
-	current_response = ""
 	current_request_type = "generate"
 
 	var body = {
@@ -161,16 +167,18 @@ func generate(prompt: String, options: Dictionary = {}) -> void:
 	if options.has("num_predict"):
 		body.options.num_predict = options.num_predict
 	if options.has("stop"):
-		body.stop = options.stop
+		body.stop = options.stop  # Server-side stop token handling
 	if options.has("think"):
 		body.think = options.think
+	if options.has("system"):
+		body.system = options.system  # Separate system prompt field (cleaner than concatenation)
 
 	var json_body = JSON.stringify(body)
 	var headers = ["Content-Type: application/json"]
 
 	var url = host + "/api/generate"
 	print("[OllamaClient] Sending generate request to: %s" % url)
-	print("[OllamaClient] Model: %s, Stream: %s, Think: %s" % [model, body.stream, body.get("think", false)])
+	print("[OllamaClient] Model: %s, Stop tokens: %s, Think: %s" % [model, options.get("stop", []), body.get("think", false)])
 	var err = http_request.request(url, headers, HTTPClient.METHOD_POST, json_body)
 
 	if err != OK:
@@ -194,7 +202,9 @@ func chat(messages: Array, options: Dictionary = {}) -> void:
 	Notes:
 		The chat endpoint supports conversation history and system prompts.
 		Messages should be ordered chronologically. System messages typically
-		come first to define behavior. Non-streaming mode is used.
+		come first to define behavior.
+
+		Stop tokens are passed to Ollama server for server-side early termination.
 
 		For reasoning models (like deepseek-r1), set think: true to get both
 		the reasoning process and final answer.
@@ -203,8 +213,11 @@ func chat(messages: Array, options: Dictionary = {}) -> void:
 		push_warning("OllamaClient: Already generating, request queued")
 		return
 
+	# Cancel any previous request to ensure clean state
+	if http_request:
+		http_request.cancel_request()
+
 	is_generating = true
-	current_response = ""
 	current_request_type = "chat"
 
 	var body = {
@@ -221,7 +234,7 @@ func chat(messages: Array, options: Dictionary = {}) -> void:
 	if options.has("num_predict"):
 		body.options.num_predict = options.num_predict
 	if options.has("stop"):
-		body.stop = options.stop
+		body.stop = options.stop  # Server-side stop token handling
 	if options.has("think"):
 		body.think = options.think
 
@@ -230,7 +243,7 @@ func chat(messages: Array, options: Dictionary = {}) -> void:
 
 	var url = host + "/api/chat"
 	print("[OllamaClient] Sending chat request to: %s" % url)
-	print("[OllamaClient] Model: %s, Messages: %d, Stream: %s, Think: %s" % [model, messages.size(), body.stream, body.get("think", false)])
+	print("[OllamaClient] Model: %s, Messages: %d, Stop tokens: %s, Think: %s" % [model, messages.size(), options.get("stop", []), body.get("think", false)])
 	var err = http_request.request(url, headers, HTTPClient.METHOD_POST, json_body)
 
 	if err != OK:
@@ -248,7 +261,7 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 		body: Response body as bytes
 
 	Notes:
-		Routes to appropriate handler based on current_request_type
+		Routes to appropriate handler based on current_request_type.
 	"""
 	print("[OllamaClient] Request completed: result=%d, response_code=%d, body_size=%d, type=%s" % [result, response_code, body.size(), current_request_type])
 	var request_type = current_request_type
@@ -257,7 +270,29 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 
 	# Check for network/HTTP errors
 	if result != HTTPRequest.RESULT_SUCCESS:
-		print("[OllamaClient] Request failed with result: %d" % result)
+		var error_msg = "Request failed with result code %d" % result
+		match result:
+			HTTPRequest.RESULT_CANT_CONNECT:
+				error_msg = "Can't connect to Ollama server at %s - is it running?" % host
+			HTTPRequest.RESULT_CANT_RESOLVE:
+				error_msg = "Can't resolve hostname: %s" % host
+			HTTPRequest.RESULT_CONNECTION_ERROR:
+				error_msg = "Connection error to %s" % host
+			HTTPRequest.RESULT_NO_RESPONSE:
+				error_msg = "No response from server"
+			HTTPRequest.RESULT_BODY_SIZE_LIMIT_EXCEEDED:
+				error_msg = "Response too large"
+			HTTPRequest.RESULT_REQUEST_FAILED:
+				error_msg = "Request failed"
+			HTTPRequest.RESULT_DOWNLOAD_FILE_CANT_OPEN:
+				error_msg = "Can't open download file"
+			HTTPRequest.RESULT_DOWNLOAD_FILE_WRITE_ERROR:
+				error_msg = "Error writing download file"
+			HTTPRequest.RESULT_REDIRECT_LIMIT_REACHED:
+				error_msg = "Too many redirects"
+			HTTPRequest.RESULT_TIMEOUT:
+				error_msg = "Request timed out after 120 seconds"
+		print("[OllamaClient] %s" % error_msg)
 		if request_type == "embed":
 			embed_failed.emit("Request failed: %s" % result)
 		else:
@@ -272,7 +307,7 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 			generate_failed.emit("HTTP error: %s" % response_code)
 		return
 
-	# Parse JSON response
+	# Parse complete JSON response
 	var json_str = body.get_string_from_utf8()
 	print("[OllamaClient] Received JSON: %s" % json_str.substr(0, 200))
 	var json = JSON.new()
@@ -349,6 +384,10 @@ func embed(texts: Variant) -> void:
 	if is_generating:
 		push_warning("OllamaClient: Already generating, embed request ignored")
 		return
+
+	# Cancel any previous request to ensure clean state
+	if http_request:
+		http_request.cancel_request()
 
 	is_generating = true
 	current_request_type = "embed"

@@ -57,7 +57,6 @@ var game_controller: Node = null
 ## Current memory status indicator for command prompt
 var memory_status: String = "[Memory: OK]"
 
-
 ## Emitted when player submits a command via Enter or Send button
 signal command_submitted(command: String)
 

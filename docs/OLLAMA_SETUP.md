@@ -40,6 +40,7 @@ ollama pull mistral-small:24b
 - `llama3:8b` - Fast, good quality
 - `dolphin-mixtral:8x7b` - Creative, conversational
 - `qwen2.5:14b` - Good reasoning
+- `comma-v0.1-2t` - Base model (public-domain data only, no instruction tuning)
 
 ### 3. Verify Ollama is Running
 
@@ -151,19 +152,19 @@ Shoggoth.generate_async()
     ↓
 Task queue (ensures one at a time)
     ↓
-ollama_client.gd → HTTP POST to localhost:11434/api/chat
+ollama_client.gd → HTTP POST to localhost:11434/api/generate
     ↓
 Ollama processes on GPU (~2-10 seconds)
     ↓
-Response: "COMMAND: say Hello!\nREASON: greeting newcomer"
+Response: "go garden | Want to explore somewhere new"
     ↓
 ThinkerComponent parses and executes
     ↓
-ActorComponent.execute_command("say", ["Hello!"])
+ActorComponent.execute_command("go", ["garden"], "Want to explore somewhere new")
     ↓
 EventWeaver broadcasts to room
     ↓
-You see: "Eliza says, 'Hello!'"
+You see: "Eliza goes north."
 ```
 
 ### GPU Management
@@ -250,14 +251,15 @@ Update config to use it.
 
 ### Model Selection
 
-| Model | Size | Speed | Quality |
-|-------|------|-------|---------|
-| mistral:7b | 4.1GB | Fast | Good |
-| llama3:8b | 4.7GB | Fast | Great |
-| mistral-small:24b | 14GB | Medium | Excellent |
-| mixtral:8x7b | 26GB | Slow | Excellent |
+| Model | Size | Speed | Quality | Type |
+|-------|------|-------|---------|------|
+| comma-v0.1-2t | ~2GB | Very Fast | Good | Base |
+| mistral:7b | 4.1GB | Fast | Good | Instruct |
+| llama3:8b | 4.7GB | Fast | Great | Instruct |
+| mistral-small:24b | 14GB | Medium | Excellent | Instruct |
+| mixtral:8x7b | 26GB | Slow | Excellent | Instruct |
 
-Choose based on your GPU memory.
+Choose based on your GPU memory and whether you need public-domain training data (base models).
 
 ### Response Length
 
@@ -309,6 +311,94 @@ REASON: <explanation>
 ```
 
 Modify parsing in `ThinkerComponent._on_thought_complete()` for different formats.
+
+---
+
+## Base Model Support
+
+Miniworld now supports **base models** (non-instruct-tuned models) like `comma-v0.1-2t` in addition to instruction-tuned/chat models.
+
+### What are Base Models?
+
+- **Base models**: Pre-trained on raw text, predict next token continuation (like GPT-2/3)
+- **Instruct models**: Fine-tuned on instruction-following datasets (like ChatGPT, Gemma-Instruct)
+- **Difference**: Base models don't understand "system prompt" or instruction format, they just continue text
+
+### How Miniworld Handles Base Models
+
+The system automatically works with both model types through three optimizations:
+
+#### 1. Generate Mode (/api/generate)
+Miniworld uses Ollama's `/api/generate` endpoint instead of `/api/chat` for simpler, faster single-line responses. This works well for both base and instruct models since we just want one command at a time.
+
+#### 2. Command Prompt Scaffolding
+The prompt ends with a command line to guide base models:
+```
+Your next command:
+>
+```
+
+This makes the next token prediction favor a valid command. Instruct models ignore this scaffolding and follow the instructions naturally.
+
+#### 3. Newline Stop Token + Response Parsing
+By default, Miniworld uses `"\n"` as a stop token and parses only the first line:
+
+```ini
+[ollama]
+stop_tokens = ["\n"]
+```
+
+**For instruct models**: Stop token passed to server (defense in depth)
+**For base models**: Limits generation server-side + response parser extracts first line
+
+**Defense in depth**: Even if Ollama's server-side stop doesn't work perfectly, the response parser extracts only the first non-empty line, discarding any excess transcript generation.
+
+### Configuring for Base Models
+
+**Example config for Comma v0.1-2t:**
+```ini
+[ollama]
+host = "http://localhost:11434"
+model = "comma-v0.1-2t"
+temperature = 0.9
+max_tokens = 32765
+stop_tokens = ["\n"]
+```
+
+**If using an instruct model and want to disable the stop token:**
+```ini
+stop_tokens = []
+```
+
+### Performance Considerations
+
+Base models like Comma v0.1-2t:
+- ✅ Use **public-domain data only** (no copyrighted training data)
+- ✅ Often **faster** (smaller parameter counts)
+- ✅ **More predictable** (lower temperature works well)
+- ⚠️ May produce **less natural conversation** (not fine-tuned for chat)
+- ⚠️ May need **higher temperature** for variety (try 0.9-1.2)
+
+### Testing Base Models
+
+```bash
+# Pull the base model
+ollama pull comma-v0.1-2t
+
+# Update config to use it
+# Edit: %APPDATA%\Godot\app_userdata\Miniworld\shoggoth_config.cfg
+model = "comma-v0.1-2t"
+temperature = 0.9
+stop_tokens = ["\n"]
+
+# Run Miniworld and observe agent behavior
+```
+
+**Expected behavior:**
+- Agents should generate single-line commands
+- Commands should be valid and contextual
+- May be less "chatty" than instruct models
+- Should still follow the MOO command syntax
 
 ---
 

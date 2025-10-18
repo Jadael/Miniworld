@@ -229,7 +229,7 @@ func _build_context() -> Dictionary:
 	# Retrieve recent memories if available
 	if owner.has_component("memory"):
 		var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
-		context.recent_memories = memory_comp.get_recent_memories(64)
+		context.recent_memories = memory_comp.get_recent_memories(20)  # Reduced from 64 for faster inference
 
 		# Retrieve contextually relevant notes based on location and occupants
 		# Create typed array for occupants to satisfy type checker
@@ -250,21 +250,19 @@ func _build_context() -> Dictionary:
 func _construct_prompt(context: Dictionary) -> String:
 	"""Construct LLM prompt from context.
 
-	Builds a structured prompt containing agent identity, current
-	situation, available actions, and instructions for response format.
+	Builds a structured prompt optimized for both base models and instruct models:
 
-	Uses the Python prototype strategy: repeats current situation at
-	the beginning and end to act like an automatic LOOK command.
+	1. Identity & Profile (system context)
+	2. Command List & Format Instructions
+	3. Relevant Notes (from personal wiki)
+	4. Recent Transcript (few-shot examples - critical for base models!)
+	5. Current Situation (minimal summary)
+	6. Command Prompt ("> " - triggers command generation)
 
-	Now includes contextually relevant notes from personal wiki, automatically
-	surfacing knowledge about the current location, present actors, and recent
-	activity. Notes are intelligently deduplicated to avoid showing the same
-	note multiple times.
-
-	Now supports customization via properties:
-	- "thinker.prompt_sections" (Dictionary) - override specific sections
-	- "thinker.custom_commands" (Array[String]) - additional commands
-	- "thinker.anti_repetition_hint" (String) - custom anti-loop text
+	The transcript placement is KEY for base models: by putting it immediately
+	before the command prompt, recent commands serve as few-shot examples showing
+	the model exactly what format to use. This dramatically improves base model
+	command generation.
 
 	Args:
 		context: Dictionary from _build_context() with situation info
@@ -274,92 +272,17 @@ func _construct_prompt(context: Dictionary) -> String:
 
 	Notes:
 		Expects LLM to respond with MOO-style: "command args | reason"
+		The transcript-before-prompt structure is optimized for base models
+		while remaining effective for instruct/chat models.
 	"""
 	var prompt: String = ""
 
-	# Agent identity and personality
-	prompt += "You are %s.\n\n" % context.name
+	# Agent identity and personality (character context)
+	prompt += "You are %s. " % context.name
 	prompt += "%s\n\n" % context.profile
 
-	# FIRST presentation: Current situation (automatic LOOK already happened)
-	prompt += "You just looked around and see:\n\n"
-	prompt += "Location: %s\n" % context.location_name
-	prompt += "%s\n\n" % context.location_description
-
-	# Available exits
-	if context.exits.size() > 0:
-		prompt += "Exits: %s\n" % ", ".join(context.exits)
-	else:
-		prompt += "No exits visible.\n"
-
-	# Other actors present
-	if context.occupants.size() > 0:
-		prompt += "Also here: %s\n\n" % ", ".join(context.occupants)
-	else:
-		prompt += "You are alone.\n\n"
-
-	# Recent observations from memory - presented as a transcript scroll
-	var notes_shown_in_memories: Array[String] = []  # Track notes already shown
-	if context.recent_memories.size() > 0:
-		prompt += "## Recent Events (what you've been doing and seeing)\n\n"
-		for memory in context.recent_memories:
-			var mem_dict: Dictionary = memory as Dictionary
-			var content: String = mem_dict.content
-			prompt += "%s\n" % content
-
-			# Track if this memory line contains a note title (to avoid duplication later)
-			if content.contains("You saved a note titled"):
-				var parts: PackedStringArray = content.split("\"")
-				if parts.size() >= 2:
-					notes_shown_in_memories.append(parts[1])
-		prompt += "\n"
-
-	# Contextually relevant notes from personal wiki
-	if context.has("relevant_notes") and context.relevant_notes.size() > 0:
-		prompt += "## Relevant Notes from Your Personal Wiki\n\n"
-		prompt += "These notes might be helpful for your current situation:\n\n"
-		for note_data in context.relevant_notes:
-			var note_dict: Dictionary = note_data as Dictionary
-			var note_title: String = note_dict.get("title", "")
-			var note_content: String = note_dict.get("content", "")
-
-			# Skip notes that were recently created (already shown in memories)
-			if note_title in notes_shown_in_memories:
-				continue
-
-			prompt += "**%s**\n%s\n\n" % [note_title, note_content]
-		prompt += "\n"
-
-	# SECOND presentation: Reinforce current situation after memories
-	prompt += "## Now that you're caught up, remember your current situation:\n\n"
-	prompt += "You are %s in %s.\n" % [context.name, context.location_name]
-	prompt += "%s\n\n" % context.location_description
-
-	# Repeat exits and occupants for reinforcement
-	if context.exits.size() > 0:
-		prompt += "Exits: %s\n" % ", ".join(context.exits)
-	else:
-		prompt += "No exits visible.\n"
-
-	if context.occupants.size() > 0:
-		prompt += "Also here: %s\n\n" % ", ".join(context.occupants)
-	else:
-		prompt += "You are alone.\n\n"
-
-	# Anti-repetition hints - customizable via property
-	var anti_rep_hint: String = ""
-	if owner.has_property("thinker.anti_repetition_hint"):
-		anti_rep_hint = owner.get_property("thinker.anti_repetition_hint")
-	else:
-		# Default anti-repetition text
-		anti_rep_hint = "IMPORTANT: You already looked around (see above). Don't look again unless something changes! "
-		anti_rep_hint += "Review your recent memories to see what you did last. "
-		anti_rep_hint += "If stuck or repeating yourself, try something NEW - move to a different location, "
-		anti_rep_hint += "talk to someone, or examine something interesting."
-	prompt += anti_rep_hint + "\n\n"
-
-	# Available command reference - customizable via property
-	prompt += "## Available Commands\n\n"
+	# Available command reference early for context
+	prompt += "## Available Commands\n"
 	var command_list: Array = []
 	if owner.has_property("thinker.command_list"):
 		command_list = owner.get_property("thinker.command_list")
@@ -385,20 +308,66 @@ func _construct_prompt(context: Dictionary) -> String:
 		prompt += "- %s\n" % cmd
 	prompt += "\n"
 
-	# Response format instructions
-	prompt += "## Response Format\n\n"
-	prompt += "Respond with a single line using MOO-style syntax:\n\n"
-	prompt += "command args | reason\n\n"
-	prompt += "Everything after | is your private reasoning "
-	prompt += "(not visible to others, but recorded in your memory for future reference).\n\n"
-	prompt += "Examples:\n"
-	prompt += "- go garden | Want to explore somewhere new\n"
-	prompt += "- say Hello! How are you today?\n"
-	prompt += "- emote waves enthusiastically | They look friendly, making a connection\n"
-	prompt += "- examine Moss | Curious about this contemplative being\n"
-	prompt += "- note Moss Observations -> Contemplative being in garden, likes philosophy\n"
-	prompt += "- recall skroderiders\n\n"
-	prompt += "What do you want to do?\n"
+	## Response format instructions
+	#prompt += "## Response Format\n\n"
+	#prompt += "Respond with a single line using MOO-style syntax:\n\n"
+	#prompt += "command args | reason\n\n"
+	#prompt += "Everything after | is your private reasoning "
+	#prompt += "(not visible to others, but recorded in your memory for future reference).\n\n"
+	#prompt += "Examples:\n"
+	#prompt += "- go garden | Want to explore somewhere new\n"
+	#prompt += "- say Hello! How are you today?\n"
+	#prompt += "- emote waves enthusiastically | They look friendly, making a connection\n"
+	#prompt += "- examine Moss | Curious about this contemplative being\n"
+	#prompt += "- note Moss Observations -> Contemplative being in garden, likes philosophy\n"
+	#prompt += "- recall skroderiders\n\n"
+
+	# Contextually relevant notes from personal wiki (before transcript for context)
+	var notes_shown_in_memories: Array[String] = []  # Track notes already shown
+	if context.has("relevant_notes") and context.relevant_notes.size() > 0:
+		prompt += "## Relevant Private Notes\n\n"
+		for note_data in context.relevant_notes:
+			var note_dict: Dictionary = note_data as Dictionary
+			var note_title: String = note_dict.get("title", "")
+			var note_content: String = note_dict.get("content", "")
+			prompt += "**%s**\n%s\n\n" % [note_title, note_content]
+			notes_shown_in_memories.append(note_title)
+		prompt += "\n"
+
+	# Recent observations from memory - TRANSCRIPT doubles as both context and few-shot examples
+	# This goes LAST, so that base models continue it naturally
+	if context.recent_memories.size() > 0:
+		prompt += "────────────────────────────────────────────────────────────\n"
+		for memory in context.recent_memories:
+			var mem_dict: Dictionary = memory as Dictionary
+			var content: String = mem_dict.content
+			prompt += "%s\n" % content
+
+			# Track note titles to avoid duplication
+			if content.contains("You saved a note titled"):
+				var parts: PackedStringArray = content.split("\"")
+				if parts.size() >= 2:
+					notes_shown_in_memories.append(parts[1])
+		#prompt += "────────────────────────────────────────────────────────────\n\n"
+
+	# FINAL: Current situation summary (minimal, right before command prompt)
+	#prompt += "You are %s in %s. " % [context.name, context.location_name]
+	#prompt += "%s\n\n" % context.location_description
+#
+	## Exits and occupants
+	#prompt += "Exits: "
+	#if context.exits.size() > 0:
+		#prompt += ", ".join(context.exits) + "\n"
+	#else:
+		#prompt += "none\n"
+#
+	#if context.occupants.size() > 0:
+		#prompt += "Also here: %s\n\n" % ", ".join(context.occupants)
+	#else:
+		#prompt += "\n"
+
+	# Command prompt line for base models (makes next token prediction favor a command)
+	prompt += "> "
 
 	return prompt
 

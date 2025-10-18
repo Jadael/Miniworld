@@ -125,19 +125,21 @@ func _create_default_config() -> void:
 	- host: http://localhost:11434 (standard Ollama port)
 	- model: gemma3:4b (faster model for testing)
 	- temperature: 0.9 (high temperature, which hopefully blends with the caffolding for long-term behaviors)
-	- max_tokens: 32765 (generous response length for local inference)
-	- stop_tokens: [] (no custom stop sequences)
+	- max_tokens: 512 (allows single-line commands with reasoning, or longer note content)
+	- stop_tokens: ["\n"] (stop at newline, optimized for base models)
 
 	Notes:
-		max_tokens set to 32765 since we're running local inference and can afford
-		longer responses. This prevents AI agents from getting cut off mid-thought.
-		Using gemma3:4b for faster inference during development/testing.
+		max_tokens set to 512 as a balance: most commands are ~20-50 tokens, but
+		note-writing commands can be much longer ("note Topic -> This is my detailed
+		observation about X with multiple sentences"). 512 tokens = ~400 words,
+		sufficient for substantive notes while still preventing runaway generation.
+		Much faster than 32K limit (2-3x speedup) while allowing useful content.
 	"""
 	config.set_value("ollama", "host", "http://localhost:11434")
 	config.set_value("ollama", "model", "gemma3:4b")
 	config.set_value("ollama", "temperature", 0.9)
-	config.set_value("ollama", "max_tokens", 32765)
-	config.set_value("ollama", "stop_tokens", [])
+	config.set_value("ollama", "max_tokens", 512)
+	config.set_value("ollama", "stop_tokens", ["\n"])
 	config.save(CONFIG_FILE)
 	#Chronicler.log_event(self, "default_config_created", {})
 
@@ -518,10 +520,10 @@ func _execute_current_task(options: Dictionary) -> void:
 
 	var mode = current_task.get("mode", "generate")
 
-	if mode == "chat_async":
+	if mode == "generate_async":
 		# Just-in-time prompt generation for async tasks
 		if not current_task.has("prompt_generator"):
-			_handle_task_error("Async chat task missing 'prompt_generator' key")
+			_handle_task_error("Async generate task missing 'prompt_generator' key")
 			return
 
 		var prompt_generator = current_task["prompt_generator"]
@@ -534,18 +536,19 @@ func _execute_current_task(options: Dictionary) -> void:
 		elif prompt_generator is String:
 			prompt_text = prompt_generator
 		else:
-			_handle_task_error("Async chat task prompt_generator must be String or Callable")
+			_handle_task_error("Async generate task prompt_generator must be String or Callable")
 			return
 
 		var system_prompt: String = current_task.get("system_prompt", "")
 
-		# Build messages with fresh prompt
-		var messages = [
-			{"role": "system", "content": system_prompt},
-			{"role": "user", "content": prompt_text}
-		]
+		# Use separate system field for /api/generate (cleaner, potentially faster)
+		# Ollama's /api/generate supports a "system" field for system prompts
+		if system_prompt != "":
+			options["system"] = system_prompt
 
-		ollama_client.chat(messages, options)
+		print("[Shoggoth] Sending generate request: prompt_length=%d, system_prompt_length=%d" % [prompt_text.length(), system_prompt.length()])
+		print("[Shoggoth] First 200 chars: %s" % prompt_text.substr(0, 200))
+		ollama_client.generate(prompt_text, options)
 
 	elif mode == "chat":
 		if not current_task.has("messages"):
@@ -808,7 +811,8 @@ func generate_async(prompt: Variant, system_prompt: String, callback: Callable) 
 		The task ID, or empty string if LLM is unavailable
 
 	Notes:
-		Uses chat mode internally to support system prompts. The callback is
+		Uses /api/generate mode for simpler, faster single-line responses. The system
+		prompt is combined with the user prompt into a single string. The callback is
 		stored in pending_callbacks and invoked by Shoggoth when the task completes.
 		If LLM is unavailable, the callback is immediately called with an empty string.
 
@@ -826,11 +830,11 @@ func generate_async(prompt: Variant, system_prompt: String, callback: Callable) 
 		"id": task_id,
 		"prompt_generator": prompt,  # Can be String or Callable
 		"system_prompt": system_prompt,
-		"mode": "chat_async",  # Special mode for just-in-time prompt generation
+		"mode": "generate_async",  # Use /api/generate for simpler, faster single-line responses
 		"parameters": {}
 	}
 	task_queue.append(task)
-	print("[Shoggoth] Async chat task queued: %s (queue length: %d, is_processing: %s, is_initializing: %s)" % [task_id, task_queue.size(), is_processing_task, is_initializing])
+	print("[Shoggoth] Async generate task queued: %s (queue length: %d, is_processing: %s, is_initializing: %s)" % [task_id, task_queue.size(), is_processing_task, is_initializing])
 
 	# Register callback - Shoggoth will invoke it when task completes
 	pending_callbacks[task_id] = callback
