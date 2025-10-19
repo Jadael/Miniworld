@@ -54,6 +54,12 @@ var repetition_retry_count: int = 0
 ## Maximum retries when agent repeats exact same command
 const MAX_REPETITION_RETRIES: int = 2
 
+## Task ID for pending LLM request (used for training data collection)
+var _pending_training_task_id: String = ""
+
+## Last prompt used (captured for training data)
+var _last_prompt: String = ""
+
 
 ## Emitted when the agent completes a thought and executes a command
 signal thought_completed(command: String, reason: String)
@@ -179,6 +185,7 @@ func _think() -> void:
 		# Pass a callable that:
 		# 1. Broadcasts thinking behavior (at the last moment before context is built)
 		# 2. Builds the prompt fresh when Shoggoth is ready to execute
+		# 3. Captures the prompt for training data collection
 		var prompt_generator: Callable = func() -> String:
 			# This runs just-in-time when Shoggoth is ready - broadcast NOW
 			var current_location: WorldObject = owner.get_location()
@@ -186,9 +193,18 @@ func _think() -> void:
 
 			# Now build fresh context and prompt
 			var fresh_context: Dictionary = _build_context()
-			return _construct_prompt(fresh_context)
+			var prompt: String = _construct_prompt(fresh_context)
 
-		Shoggoth.generate_async(prompt_generator, get_profile(), Callable(self, "_on_thought_complete"))
+			# Capture prompt for training data (stored in component)
+			_last_prompt = prompt
+
+			return prompt
+
+		# Generate task and capture task_id for training data collection
+		var task_id: String = Shoggoth.generate_async(prompt_generator, get_profile(), Callable(self, "_on_thought_complete"))
+
+		# Store task_id for training data collection
+		_pending_training_task_id = task_id
 	else:
 		# Fixed FIXME: Split ternary into separate conditional to avoid type incompatibility
 		var client_status: String = "N/A"
@@ -275,8 +291,7 @@ func _construct_prompt(context: Dictionary) -> String:
 
 	The transcript placement is KEY for base models: by putting it immediately
 	before the command prompt, recent commands serve as few-shot examples showing
-	the model exactly what format to use. This dramatically improves base model
-	command generation.
+	the model exactly what format to use, which helps get base models behaving.
 
 	Args:
 		context: Dictionary from _build_context() with situation info
@@ -296,26 +311,26 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "%s\n\n" % context.profile
 
 	# Available command reference early for context
-	prompt += "## Available Commands\n"
+	prompt += "BASIC COMMANDS:\n"
 	var command_list: Array = []
 	if owner.has_property("thinker.command_list"):
 		command_list = owner.get_property("thinker.command_list")
 	else:
 		# Default command list
 		command_list = [
-			"go <exit>: Move to another location",
-			"say <message>: Speak to others",
-			"emote <action>: Perform an action",
-			"examine <target>: Look at something/someone closely",
-			"note <title> -> <content>: Save important information to your personal wiki",
-			"recall <query>: Search your notes for relevant information",
-			"dream: Review jumbled memories for new insights (when feeling stuck or curious)",
-			"@my-profile: View your personality profile and think interval",
-			"@my-description: View how others see you",
-			"@set-profile -> <text>: Update your personality (self-modification)",
-			"@set-description -> <text>: Update your appearance",
-			"help [command|category]: Get help on commands (try 'help social' or 'help say')",
-			"commands: List all available commands"
+			"GO <exit>: Move to another location",
+			"SAY <message>: Speak to others",
+			"EMOTE <action>: Perform an action",
+			"EXAMINE <target>: Look at something/someone closely",
+			"NOTE <title> -> <content>: Save important information to your personal wiki",
+			"RECALL <query>: Search your notes for relevant information",
+			"DREAM: Review jumbled memories for new insights (when feeling stuck or curious)",
+			"@MY-PROFILE: View your personality profile and think interval",
+			"@MY-DESCRIPTION: View how others see you",
+			"@SET-PROFILE -> <text>: Update your personality (self-modification)",
+			"@SET-DESCRIPTION -> <text>: Update your appearance",
+			"HELP [command|category]: Get help on commands (try 'help social' or 'help say')",
+			"COMMANDS: List all available commands"
 		]
 
 	for cmd in command_list:
@@ -351,7 +366,7 @@ func _construct_prompt(context: Dictionary) -> String:
 	# Recent observations from memory - TRANSCRIPT doubles as both context and few-shot examples
 	# This goes LAST, so that base models continue it naturally
 	if context.recent_memories.size() > 0:
-		prompt += "────────────────────────────────────────────────────────────\n"
+		prompt += "---\n"
 		for memory in context.recent_memories:
 			var mem_dict: Dictionary = memory as Dictionary
 			var content: String = mem_dict.content
@@ -362,26 +377,26 @@ func _construct_prompt(context: Dictionary) -> String:
 				var parts: PackedStringArray = content.split("\"")
 				if parts.size() >= 2:
 					notes_shown_in_memories.append(parts[1])
-		#prompt += "────────────────────────────────────────────────────────────\n\n"
+		prompt += "---\n"
 
 	# FINAL: Current situation summary (minimal, right before command prompt)
-	#prompt += "You are %s in %s. " % [context.name, context.location_name]
-	#prompt += "%s\n\n" % context.location_description
+	prompt += "You are %s in %s. " % [context.name, context.location_name]
+	prompt += "%s\n" % context.location_description
 #
 	## Exits and occupants
-	#prompt += "Exits: "
-	#if context.exits.size() > 0:
-		#prompt += ", ".join(context.exits) + "\n"
-	#else:
-		#prompt += "none\n"
-#
-	#if context.occupants.size() > 0:
-		#prompt += "Also here: %s\n\n" % ", ".join(context.occupants)
-	#else:
-		#prompt += "\n"
+	prompt += "Exits: "
+	if context.exits.size() > 0:
+		prompt += ", ".join(context.exits) + "\n"
+	else:
+		prompt += "none\n"
 
-	# Command prompt line for base models (makes next token prediction favor a command)
-	prompt += "> "
+	if context.occupants.size() > 0:
+		prompt += "Also here: %s\n" % ", ".join(context.occupants)
+	else:
+		prompt += "You are alone here.\n"
+
+	# Command prompt line for base models (hints next token prediction to favor a command)
+	prompt += "~%s>" % context.name
 
 	return prompt
 
@@ -472,9 +487,17 @@ func _on_thought_complete(response: String, thinking: String = "") -> void:
 			# Store this command for next comparison
 			last_command_full = current_command_full
 
-			# Execute the command
-			actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason)
+			# Capture training data if TrainingDataCollector is available
+			if _last_prompt != "" and _pending_training_task_id != "" and TrainingDataCollector:
+				TrainingDataCollector.capture_prompt_and_command(owner, _last_prompt, command_line, _pending_training_task_id)
+
+			# Execute the command (pass task_id for training data collection)
+			actor_comp.execute_command(parsed.verb, parsed.args, parsed.reason, _pending_training_task_id)
 			thought_completed.emit(command_line, parsed.reason)
+
+			# Clear pending training data after execution
+			_pending_training_task_id = ""
+			_last_prompt = ""
 
 
 func _broadcast_thinking_behavior(location: WorldObject) -> void:

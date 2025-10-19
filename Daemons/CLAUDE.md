@@ -12,6 +12,7 @@ Daemons are autoloaded singleton managers that provide global services to the Mi
 - **shoggoth.gd** - AI/LLM interface daemon, manages Ollama client and task queue for async inference
 - **markdown_vault.gd** - Persistence system, serializes/deserializes world state to Obsidian-compatible markdown
 - **memory_budget.gd** - Dynamic memory allocation system, scales agent memory limits based on available system resources
+- **training_data_collector.gd** - Captures gameplay for fine-tuning base models, stores prompt-command pairs for llama.cpp
 - **ollama_client.gd** - HTTP client for Ollama API, handles streaming responses and embeddings
 
 ## Daemon Responsibilities
@@ -119,6 +120,71 @@ Daemons are autoloaded singleton managers that provide global services to the Mi
 - High-end (32GB RAM, 5% = 1.6GB): All agents capped at 1M memories each
 
 **Pattern**: MemoryComponent calls `get_memory_limit_for_agent()` when pruning old memories
+
+### TrainingDataCollector
+**Purpose**: Capture gameplay data for fine-tuning base LLMs
+
+**Key Features**:
+- **Automatic Capture**: Hooks into ThinkerComponent and ActorComponent to capture prompts and results
+- **Rich Metadata**: Each example includes agent name, timestamp, success/failure
+- **Flexible Filtering**: Export with filters by agent, success, timestamp range
+- **Last Line Format**: Training format always has command as last line (successful or failed)
+- **Community Sharing**: Export includes instructions for contributing data to improve Miniworld
+
+**Key Functions**:
+- `capture_prompt_and_command(actor, prompt, command, task_id)` - Record pending example from AI generation
+- `record_command_result(actor, command, result, task_id)` - Categorize based on execution success
+- `export_consolidated_dataset(output_path, filters)` - Export with optional filtering
+- `get_status()` - Returns collection statistics and file counts
+- `toggle_collection()` - Enable/disable collection
+
+**Data Format**:
+```
+# METADATA
+agent: <name>
+timestamp: <iso_timestamp>
+success: <true|false>
+
+# PROMPT
+<full_prompt_exactly_as_agent_saw_it>
+
+# RESPONSE
+<actual_command_generated>
+```
+
+**Key Principle**: Last line is ALWAYS the actual command (whether successful or failed)
+- Successful examples: Shows what worked
+- Failed examples: Shows what to avoid
+- Metadata enables post-processing filters
+
+**Data Structure**:
+- `user://training_data/successful/*.txt` - Valid command examples
+- `user://training_data/unsuccessful/*.txt` - Failed command examples
+- Files named: `timestamp_agentname.txt`
+
+**Configuration** (via config file):
+- `collector.enabled` - Whether collection is active (default: true)
+- `collector.collect_player_commands` - Include player commands (default: false, AI only)
+- `collector.collect_admin_commands` - Include admin commands (default: false)
+
+**Admin Commands**:
+- `@training-status` - Show collection statistics
+- `@training-export [failed|all|agent <name>|exclude <name>] [filename]` - Export with filters
+  - Default: Export successful examples only
+  - `failed`: Export only failed examples (for negative training)
+  - `all`: Export everything
+  - `agent <name>`: Include only specific agent
+  - `exclude <name>`: Exclude specific agent
+- `@training-clear` - Delete all collected data
+- `@training-toggle` - Enable/disable collection
+
+**Training Strategies**:
+1. **Negative Training** (recommended): Export failed examples to teach "what not to do"
+2. **Positive Training**: Export successful examples (risk: overfitting to test agents)
+3. **Filtered Training**: Exclude specific agents to avoid personality bias
+4. **Mixed**: Combine approaches for robust training
+
+**Pattern**: ThinkerComponent captures prompt via callable, ActorComponent records result via task_id
 
 ### OllamaClient
 **Purpose**: HTTP interface to Ollama API

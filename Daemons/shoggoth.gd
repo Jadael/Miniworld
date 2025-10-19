@@ -50,8 +50,10 @@ signal initialization_status(status_message: String)
 ## Path to the configuration file storing Ollama settings
 const CONFIG_FILE = "user://shoggoth_config.cfg"
 
-## Simple prompt used to test LLM connectivity during initialization
-const INIT_TEST_PROMPT = "Please say only `test`."
+## Simple prompt used to test LLM connectivity and stop token behavior
+## This prompt naturally generates multiple lines, allowing us to verify
+## that the stop token (\n) halts generation after the first line
+const INIT_TEST_PROMPT = "Say hello."
 
 ## Maximum number of retry attempts for failed tasks before giving up
 const MAX_RETRIES = 3
@@ -217,12 +219,17 @@ func _configure_ollama_client(ollama_host: String, model_name: String) -> void:
 	#})
 
 func _run_initialization_test() -> void:
-	"""Send a simple test prompt to verify LLM connectivity.
+	"""Send a test prompt to verify LLM connectivity and stop token behavior.
 
 	Bypasses the task queue to avoid circular dependency during initialization.
-	Uses a short token limit and zero temperature for deterministic results.
+	Uses a short token limit, zero temperature for deterministic results, and
+	includes stop token to verify server-side early termination is working.
 
 	Notes:
+		Tests two things:
+		1. LLM connectivity - Does Ollama respond at all?
+		2. Stop token behavior - Does response contain only one line?
+
 		The response is handled by _on_generate_text_finished which detects
 		initialization mode and routes to _on_init_test_completed instead of
 		normal task completion handling.
@@ -239,23 +246,42 @@ func _run_initialization_test() -> void:
 
 	print("[Shoggoth] Sending init test to Ollama...")
 	# Run init test directly without queuing to avoid circular dependency
-	ollama_client.generate(INIT_TEST_PROMPT, {"num_predict": 32, "temperature": 0.0})
+	# Include stop token to verify server-side early termination is working
+	var stop_tokens = config.get_value("ollama", "stop_tokens", ["\n"])
+	ollama_client.generate(INIT_TEST_PROMPT, {
+		"num_predict": 32,
+		"temperature": 0.0,
+		"stop": stop_tokens
+	})
 
 func _on_init_test_completed(result: String) -> void:
 	"""Handle completion of the initialization test.
 
 	Args:
-		result: The text response from the LLM (expected to be a greeting)
+		result: The text response from the LLM (expected to be a single-line greeting)
 
 	Notes:
-		Considers initialization successful if we receive any non-empty response.
+		Tests both LLM connectivity and stop token behavior. Considers initialization
+		successful if we receive a non-empty response. Also verifies that the response
+		contains no newlines, confirming stop token is working correctly.
 		Emits models_initialized signal to notify other systems. If tasks were
 		queued during initialization, begins processing them now.
 		Emits initialization_status for UI visibility.
 	"""
 	print("[Shoggoth] Init test completed with result: '%s'" % result)
+
+	# Check if LLM responded at all
 	var llm_success = result.strip_edges() != ""
 	print("[Shoggoth] LLM success: %s" % llm_success)
+
+	# Check if stop token worked (response should be single line)
+	if llm_success and "\n" in result:
+		push_warning("[Shoggoth] Stop token did not work - response contains newline!")
+		print("[Shoggoth] Response has %d lines (expected 1)" % result.split("\n").size())
+		for i in result.split("\n").size():
+			print("[Shoggoth]   Line %d: '%s'" % [i, result.split("\n")[i]])
+	elif llm_success:
+		print("[Shoggoth] Stop token working correctly - single line response")
 
 	if llm_success:
 		var model_name = config.get_value("ollama", "model", "unknown") if config else "unknown"

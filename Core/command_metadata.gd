@@ -219,6 +219,38 @@ const COMMANDS = {
 		"example": "@llm-config model llama3.2:3b",
 		"admin": true
 	},
+	"@training-status": {
+		"aliases": [],
+		"category": "admin",
+		"syntax": "@training-status",
+		"description": "Show training data collection statistics",
+		"example": "@training-status",
+		"admin": true
+	},
+	"@training-export": {
+		"aliases": [],
+		"category": "admin",
+		"syntax": "@training-export [failed|all|agent <name>|exclude <name>] [filename]",
+		"description": "Export training data with filtering (success only by default)",
+		"example": "@training-export failed",
+		"admin": true
+	},
+	"@training-clear": {
+		"aliases": [],
+		"category": "admin",
+		"syntax": "@training-clear",
+		"description": "Delete all collected training data (WARNING: cannot be undone)",
+		"example": "@training-clear",
+		"admin": true
+	},
+	"@training-toggle": {
+		"aliases": [],
+		"category": "admin",
+		"syntax": "@training-toggle",
+		"description": "Enable/disable training data collection",
+		"example": "@training-toggle",
+		"admin": true
+	},
 
 	# === Query Commands ===
 	"who": {

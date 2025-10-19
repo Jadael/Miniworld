@@ -60,6 +60,9 @@ var last_reason: String = ""
 ## Updated via _update_location() before each command execution
 var current_location: WorldObject = null
 
+## Flag to prevent infinite recursion in auto-correction
+var _in_autocorrect: bool = false
+
 func _on_added(obj: WorldObject) -> void:
 	"""Called when this component is added to a WorldObject.
 
@@ -245,7 +248,7 @@ func _find_closest_command(typo: String) -> String:
 	return best_match
 
 
-func execute_command(command: String, args: Array = [], reason: String = "") -> Dictionary:
+func execute_command(command: String, args: Array = [], reason: String = "", task_id: String = "") -> Dictionary:
 	"""Execute a command as this actor and return the result.
 
 	Matches the command string against known commands and dispatches
@@ -256,6 +259,7 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 		command: The command verb to execute (case-insensitive)
 		args: Array of string arguments for the command
 		reason: Optional reasoning/commentary for this command (appears in echoes)
+		task_id: Optional task ID for training data collection
 
 	Returns:
 		Dictionary containing at least:
@@ -337,20 +341,35 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 			result = _cmd_llm_status(args)
 		"@llm-config":
 			result = _cmd_llm_config(args)
+		"@training-status":
+			result = _cmd_training_status(args)
+		"@training-export":
+			result = _cmd_training_export(args)
+		"@training-clear":
+			result = _cmd_training_clear(args)
+		"@training-toggle":
+			result = _cmd_training_toggle(args)
 		_:
 			# Try prefix matching first (MOO-style), then fuzzy matching for typos
-			var suggestion = _find_prefix_match(command)
-			if suggestion == "":
-				suggestion = _find_closest_command(command)
+			# Only auto-correct if we're not already in an auto-correction (prevent infinite recursion)
+			if not _in_autocorrect:
+				var suggestion = _find_prefix_match(command)
+				if suggestion == "":
+					suggestion = _find_closest_command(command)
 
-			if suggestion != "":
-				# Auto-correct and retry
-				print("[Actor] Auto-corrected: '%s' → '%s'" % [command, suggestion])
-				result = execute_command(suggestion, args, reason)
-				# Add note about auto-correction to message (only for player feedback)
-				if result.has("message") and owner.has_flag("is_player"):
-					result.message = "[Auto-corrected '%s' → '%s']\n%s" % [command, suggestion, result.message]
+				if suggestion != "":
+					# Auto-correct and retry (with recursion guard)
+					print("[Actor] Auto-corrected: '%s' → '%s'" % [command, suggestion])
+					_in_autocorrect = true
+					result = execute_command(suggestion, args, reason, task_id)
+					_in_autocorrect = false
+					# Add note about auto-correction to message (only for player feedback)
+					if result.has("message") and owner.has_flag("is_player"):
+						result.message = "[Auto-corrected '%s' → '%s']\n%s" % [command, suggestion, result.message]
+				else:
+					result = {"success": false, "message": "Unknown command: %s\nTry 'help' for available commands." % command}
 			else:
+				# Already in auto-correction, don't recurse
 				result = {"success": false, "message": "Unknown command: %s\nTry 'help' for available commands." % command}
 
 	# Reconstruct full command line from verb and args for caching
@@ -363,6 +382,10 @@ func execute_command(command: String, args: Array = [], reason: String = "") -> 
 	last_result = result
 	last_reason = reason
 	command_executed.emit(command, result, reason)
+
+	# Record training data if task_id provided and TrainingDataCollector available
+	if task_id != "" and TrainingDataCollector:
+		TrainingDataCollector.record_command_result(owner, full_command, result, task_id)
 
 	return result
 
@@ -2093,3 +2116,232 @@ func _cmd_llm_config(args: Array) -> Dictionary:
 
 		_:
 			return {"success": false, "message": "Unknown subcommand: %s\nTry: host, model, temperature, test" % subcommand}
+
+
+func _cmd_training_status(_args: Array) -> Dictionary:
+	"""@TRAINING-STATUS command - Display training data collection statistics (admin command).
+
+	Shows current collection status, counts of successful/unsuccessful examples,
+	and provides guidance on exporting the dataset.
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): True if TrainingDataCollector is available
+		- message (String): Formatted status report
+
+	Notes:
+		This is an admin command for monitoring training data collection.
+	"""
+	if not TrainingDataCollector:
+		return {"success": false, "message": "TrainingDataCollector daemon not loaded.\nCheck project autoload settings."}
+
+	var status: Dictionary = TrainingDataCollector.get_status()
+
+	var message: String = "═══ Training Data Collection Status ═══\n\n"
+
+	# Collection state
+	if status.enabled:
+		message += "[color=green]✓ Collection ENABLED[/color]\n\n"
+	else:
+		message += "[color=red]✗ Collection DISABLED[/color]\n\n"
+
+	# Session statistics
+	message += "Session Statistics:\n"
+	message += "  Successful examples: %d\n" % status.successful_count
+	message += "  Unsuccessful examples: %d\n" % status.unsuccessful_count
+	message += "  Pending (awaiting result): %d\n\n" % status.pending_count
+
+	# Total on disk
+	message += "Total on Disk:\n"
+	message += "  Successful: %d examples\n" % status.total_successful
+	message += "  Unsuccessful: %d examples\n\n" % status.total_unsuccessful
+
+	# Guidance
+	message += "Commands:\n"
+	message += "  @training-export - Export consolidated training file\n"
+	message += "  @training-toggle - Enable/disable collection\n"
+	message += "  @training-clear - Delete all collected data\n\n"
+
+	message += "Location: user://training_data/\n"
+
+	return {"success": true, "message": message}
+
+
+func _cmd_training_export(args: Array) -> Dictionary:
+	"""@TRAINING-EXPORT command - Export training data with filtering (admin command).
+
+	Combines training examples into a single file suitable for fine-tuning,
+	with flexible filtering options.
+
+	Syntax:
+		@training-export - Export successful examples (default)
+		@training-export <filename> - Export to custom filename
+		@training-export failed - Export only failed examples
+		@training-export all - Export all examples (successful + failed)
+		@training-export agent <name> - Export only examples from specific agent
+		@training-export exclude <name> - Export excluding specific agent
+
+	Args:
+		args: Optional arguments for filename and filtering
+
+	Returns:
+		Dictionary with:
+		- success (bool): Whether export succeeded
+		- message (String): Result message with file locations and counts
+
+	Notes:
+		Creates timestamped filename if not specified.
+		Includes instructions for sharing data with the Miniworld community.
+	"""
+	if not TrainingDataCollector:
+		return {"success": false, "message": "TrainingDataCollector daemon not loaded."}
+
+	# Parse arguments for filters and filename
+	var filters: Dictionary = {}
+	var output_path: String = ""
+
+	var i := 0
+	while i < args.size():
+		var arg := args[i]
+
+		if arg == "failed":
+			filters["failed_only"] = true
+			filters["success_only"] = false
+		elif arg == "all":
+			filters["success_only"] = false
+			filters["failed_only"] = false
+		elif arg == "agent" and i + 1 < args.size():
+			if not filters.has("agents"):
+				filters["agents"] = []
+			filters["agents"].append(args[i + 1])
+			i += 1  # Skip next arg
+		elif arg == "exclude" and i + 1 < args.size():
+			if not filters.has("exclude_agents"):
+				filters["exclude_agents"] = []
+			filters["exclude_agents"].append(args[i + 1])
+			i += 1  # Skip next arg
+		elif output_path == "":
+			# First non-flag argument is filename
+			output_path = arg
+
+		i += 1
+
+	# Determine output path
+	if output_path == "":
+		var timestamp: String = Time.get_datetime_string_from_system(false, true).replace(":", "-")
+		output_path = "user://miniworld_training_%s.txt" % timestamp
+	elif not output_path.begins_with("user://"):
+		output_path = "user://%s" % output_path
+
+	if not output_path.ends_with(".txt"):
+		output_path += ".txt"
+
+	# Export the data with filters
+	var export_result: Dictionary = TrainingDataCollector.export_consolidated_dataset(output_path, filters)
+
+	if not export_result.success:
+		return export_result
+
+	# Build success message with filter info
+	var message: String = "═══ Training Data Exported ═══\n\n"
+	message += "Successfully exported:\n"
+	message += "  %d examples included\n" % export_result.included_count
+	if export_result.excluded_count > 0:
+		message += "  %d examples excluded by filters\n" % export_result.excluded_count
+	message += "\n"
+
+	# Show active filters
+	if filters.size() > 0:
+		message += "Filters applied:\n"
+		if filters.get("success_only", true):
+			message += "  ✓ Success only\n"
+		if filters.get("failed_only", false):
+			message += "  ✓ Failed only\n"
+		if filters.has("agents"):
+			message += "  ✓ Agents: %s\n" % ", ".join(filters.agents)
+		if filters.has("exclude_agents"):
+			message += "  ✓ Excluding: %s\n" % ", ".join(filters.exclude_agents)
+		message += "\n"
+
+	message += "File created:\n"
+	message += "  %s\n\n" % output_path
+
+	# Add sharing instructions
+	message += "═══ Share Your Data! ═══\n\n"
+	message += "Help improve Miniworld for everyone!\n\n"
+	message += "To contribute your training data:\n"
+	message += "1. Find the exported file in your Godot user data folder\n"
+	message += "2. Zip it up: miniworld_training_data.zip\n"
+	message += "3. Share via:\n"
+	message += "   - GitHub issue/discussion\n"
+	message += "   - Discord/community channels\n"
+	message += "   - Direct message to maintainers\n\n"
+	message += "Your gameplay examples help fine-tune AI for better commands!\n"
+
+	return {"success": true, "message": message}
+
+
+func _cmd_training_clear(_args: Array) -> Dictionary:
+	"""@TRAINING-CLEAR command - Delete all collected training data (admin command).
+
+	WARNING: This permanently deletes all training examples. Cannot be undone!
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): Whether clear succeeded
+		- message (String): Confirmation of deletion
+
+	Notes:
+		Use with caution - deleted data cannot be recovered.
+	"""
+	if not TrainingDataCollector:
+		return {"success": false, "message": "TrainingDataCollector daemon not loaded."}
+
+	# Clear all data
+	var clear_result: Dictionary = TrainingDataCollector.clear_all_data()
+
+	var message: String = "═══ Training Data Cleared ═══\n\n"
+	message += "%s\n\n" % clear_result.message
+	message += "[color=yellow]WARNING: This action cannot be undone![/color]\n"
+
+	return clear_result
+
+
+func _cmd_training_toggle(_args: Array) -> Dictionary:
+	"""@TRAINING-TOGGLE command - Enable/disable training data collection (admin command).
+
+	Toggles collection on/off. Useful for:
+	- Pausing collection during testing/debugging
+	- Collecting only specific gameplay sessions
+	- Reducing disk usage
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): Always true
+		- message (String): New collection state
+
+	Notes:
+		State is persisted to config file.
+	"""
+	if not TrainingDataCollector:
+		return {"success": false, "message": "TrainingDataCollector daemon not loaded."}
+
+	# Toggle collection
+	var new_state: bool = TrainingDataCollector.toggle_collection()
+
+	var message: String = "Training data collection is now "
+	if new_state:
+		message += "[color=green]ENABLED[/color]"
+	else:
+		message += "[color=red]DISABLED[/color]"
+
+	return {"success": true, "message": message}
