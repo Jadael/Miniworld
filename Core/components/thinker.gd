@@ -334,7 +334,8 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "%s\n\n" % context.profile
 
 	# Available command reference early for context
-	prompt += "# Basic Commands:\n"
+	prompt += "# BASIC COMMANDS:\n"
+	prompt += "(Your response must start with a valid command keyword.)\n\n"
 	var command_list: Array = []
 	if owner.has_property("thinker.command_list"):
 		command_list = owner.get_property("thinker.command_list")
@@ -361,23 +362,17 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "\n"
 
 	## Response format instructions
-	#prompt += "## Response Format\n\n"
-	#prompt += "Respond with a single line using MOO-style syntax:\n\n"
-	#prompt += "command args | reason\n\n"
-	#prompt += "Everything after | is your private reasoning "
-	#prompt += "(not visible to others, but recorded in your memory for future reference).\n\n"
-	#prompt += "Examples:\n"
-	#prompt += "- go garden | Want to explore somewhere new\n"
-	#prompt += "- say Hello! How are you today?\n"
-	#prompt += "- emote waves enthusiastically | They look friendly, making a connection\n"
-	#prompt += "- examine Moss | Curious about this contemplative being\n"
-	#prompt += "- note Moss Observations -> Contemplative being in garden, likes philosophy\n"
-	#prompt += "- recall skroderiders\n\n"
+	prompt += "## EXAMPLES\n\n"
+	prompt += "go garden | Want to explore somewhere new.\n"
+	prompt += "say Hello! How are you today?\n"
+	prompt += "emote waves enthusiastically | They look friendly, making a connection.\n"
+	prompt += "note Goal -> Learn the game commands.\n\n"
+	prompt += "(Everything after the | is private and visible only to you.)\n\n"
 
 	# Contextually relevant notes from personal wiki (before transcript for context)
 	var notes_shown_in_memories: Array[String] = []  # Track notes already shown
 	if context.has("relevant_notes") and context.relevant_notes.size() > 0:
-		prompt += "## Relevant Private Notes\n\n"
+		prompt += "# POTENTIALLY RELATED PRIVATE NOTES:\n\n"
 		for note_data in context.relevant_notes:
 			var note_dict: Dictionary = note_data as Dictionary
 			var note_title: String = note_dict.get("title", "")
@@ -389,18 +384,18 @@ func _construct_prompt(context: Dictionary) -> String:
 	# Multi-scale memory context (cascading temporal summaries)
 	# Long-term summary (oldest compressed memories)
 	if context.has("longterm_summary") and context.longterm_summary != "":
-		prompt += "## Older Memories (Summary)\n\n"
+		prompt += "## LONG TERM MEMORY SUMMARY\n\n"
 		prompt += "%s\n\n" % context.longterm_summary
 
 	# Recent summary (memories that aged out of immediate window)
 	if context.has("recent_summary") and context.recent_summary != "":
-		prompt += "## Recent Past (Summary)\n\n"
+		prompt += "## SHORT TERM MEMORY SUMMARY:\n\n"
 		prompt += "%s\n\n" % context.recent_summary
 
 	# Recent observations from memory - TRANSCRIPT doubles as both context and few-shot examples
 	# This goes LAST, so that base models continue it naturally
 	if context.recent_memories.size() > 0:
-		prompt += "---\n"
+		prompt += "# MOST RECENT MEMORIES:\n\n"
 		for memory in context.recent_memories:
 			var mem_dict: Dictionary = memory as Dictionary
 			var content: String = mem_dict.content
@@ -411,7 +406,7 @@ func _construct_prompt(context: Dictionary) -> String:
 				var parts: PackedStringArray = content.split("\"")
 				if parts.size() >= 2:
 					notes_shown_in_memories.append(parts[1])
-		prompt += "---\n"
+		prompt += "-------------\n"
 
 	# FINAL: Current situation summary (minimal, right before command prompt)
 	prompt += "You are %s in %s. " % [context.name, context.location_name]
@@ -430,7 +425,9 @@ func _construct_prompt(context: Dictionary) -> String:
 		prompt += "You are alone here.\n"
 
 	# Command prompt line for base models (hints next token prediction to favor a command)
-	prompt += "~%s>" % context.name
+	prompt += "-------------\n"
+	prompt += "# NEXT COMMAND (with optional reasoning):\n"
+	prompt += "~%s>\n" % context.name
 
 	return prompt
 
