@@ -2205,7 +2205,7 @@ func _cmd_training_export(args: Array) -> Dictionary:
 
 	var i := 0
 	while i < args.size():
-		var arg := args[i]
+		var arg: String = args[i]
 
 		if arg == "failed":
 			filters["failed_only"] = true
