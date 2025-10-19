@@ -251,6 +251,14 @@ const COMMANDS = {
 		"example": "@training-toggle",
 		"admin": true
 	},
+	"@bootstrap-summaries": {
+		"aliases": [],
+		"category": "admin",
+		"syntax": "@bootstrap-summaries [agent name]",
+		"description": "Generate initial long-term/mid-term summaries from existing memories (requires 128+ memories, no existing summaries)",
+		"example": "@bootstrap-summaries Eliza",
+		"admin": true
+	},
 
 	# === Query Commands ===
 	"who": {

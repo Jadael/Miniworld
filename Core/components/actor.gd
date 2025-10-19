@@ -337,6 +337,10 @@ func execute_command(command: String, args: Array = [], reason: String = "", tas
 			result = _cmd_show_config(args)
 		"@memory-status":
 			result = _cmd_memory_status(args)
+		"@compact-memories":
+			result = _cmd_compact_memories(args)
+		"@bootstrap-summaries":
+			result = _cmd_bootstrap_summaries(args)
 		"@llm-status":
 			result = _cmd_llm_status(args)
 		"@llm-config":
@@ -440,12 +444,19 @@ func _cmd_go(args: Array) -> Dictionary:
 
 	Args:
 		args: Array containing the exit name (may be multi-word like "The Lobby")
+			  Accepts "go <exit>" or "go to <exit>" (the word "to" is optional)
 
 	Returns:
 		Dictionary with:
 		- success (bool): True if movement succeeded
 		- message (String): Result of automatic look at destination, or error
 		- location (WorldObject): The destination location (on success)
+
+	Notes:
+		Supports natural language variations:
+		- "go lobby" - Direct
+		- "go to lobby" - Natural (word "to" is stripped)
+		- "go The Lobby" - Multi-word exit names work with both forms
 	"""
 	if args.size() == 0:
 		return {"success": false, "message": TextManager.get_text("commands.movement.go.missing_arg")}
@@ -453,8 +464,16 @@ func _cmd_go(args: Array) -> Dictionary:
 	if current_location == null:
 		return {"success": false, "message": TextManager.get_text("commands.movement.go.no_location")}
 
+	# Handle "go to <exit>" by stripping optional "to"
+	var exit_args: Array = args.duplicate()
+	if exit_args.size() > 0 and exit_args[0].to_lower() == "to":
+		exit_args.remove_at(0)
+
+	if exit_args.size() == 0:
+		return {"success": false, "message": TextManager.get_text("commands.movement.go.missing_arg")}
+
 	# Join all args to support multi-word exit names like "The Lobby"
-	var exit_name: String = " ".join(args)
+	var exit_name: String = " ".join(exit_args)
 
 	# Verify location has location component with exits
 	var location_comp = current_location.get_component("location")
@@ -1978,6 +1997,128 @@ func _cmd_memory_status(_args: Array) -> Dictionary:
 	var report: String = memory_comp.format_integrity_report()
 
 	return {"success": true, "message": report}
+
+
+func _cmd_compact_memories(_args: Array) -> Dictionary:
+	"""@COMPACT-MEMORIES command - Manually trigger memory compaction (admin command).
+
+	Forces immediate memory compaction regardless of threshold.
+	Generates cascading temporal summaries using LLM:
+	- Recent summary: Memories outside immediate window
+	- Long-term summary: All older memories (waterfall pattern)
+
+	Args:
+		_args: Unused, but kept for consistent command signature
+
+	Returns:
+		Dictionary with:
+		- success (bool): True if compaction initiated
+		- message (String): Status message
+
+	Notes:
+		Compaction runs asynchronously. Use @memory-status to check results.
+		This command is useful for testing or forcing compaction early.
+	"""
+	if not owner.has_component("memory"):
+		return {"success": false, "message": "No memory component found."}
+
+	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
+
+	# Check if we have enough memories to compact
+	var immediate_window: int = memory_comp._get_compaction_config("immediate_window", 20)
+	if memory_comp.memories.size() <= immediate_window:
+		return {
+			"success": false,
+			"message": "Not enough memories to compact. Need more than %d memories." % immediate_window
+		}
+
+	# Trigger compaction asynchronously
+	memory_comp.compact_memories_async(func():
+		print("[Actor] %s: Memory compaction completed" % owner.name)
+	)
+
+	return {
+		"success": true,
+		"message": "Memory compaction started. Generating summaries asynchronously..."
+	}
+
+
+func _cmd_bootstrap_summaries(args: Array) -> Dictionary:
+	"""@BOOTSTRAP-SUMMARIES command - Generate initial summaries for existing memories (admin command).
+
+	Creates long-term and mid-term summaries from existing memory history,
+	allowing agents to immediately benefit from the multi-scale context system
+	without waiting for natural compaction cycles.
+
+	Syntax:
+		@bootstrap-summaries - Bootstrap your own summaries
+		@bootstrap-summaries <agent name> - Bootstrap summaries for another agent
+
+	Args:
+		args: Optional agent name to bootstrap (defaults to self)
+
+	Returns:
+		Dictionary with:
+		- success (bool): True if bootstrap initiated
+		- message (String): Status message
+
+	Notes:
+		Bootstrap only runs if agent has sufficient memories (> 128) and
+		no existing summaries. Runs asynchronously.
+	"""
+	var target_agent: WorldObject = owner
+
+	# If agent name provided, find that agent
+	if args.size() > 0:
+		var agent_name: String = args[0]
+		target_agent = WorldKeeper.find_object_by_name(agent_name)
+		if not target_agent:
+			return {"success": false, "message": "Cannot find agent: %s" % agent_name}
+
+	if not target_agent.has_component("memory"):
+		return {"success": false, "message": "%s has no memory component." % target_agent.name}
+
+	var memory_comp: MemoryComponent = target_agent.get_component("memory") as MemoryComponent
+
+	# Check if already has summaries
+	if memory_comp.recent_summary != "" or memory_comp.longterm_summary != "":
+		return {
+			"success": false,
+			"message": "%s already has summaries. Use @compact-memories to update them." % target_agent.name
+		}
+
+	# Check vault file count (not in-RAM count, which may be limited by MemoryBudget)
+	var immediate_window: int = memory_comp._get_compaction_config("immediate_window", 64)
+	var recent_window: int = memory_comp._get_compaction_config("recent_window", 64)
+	var bootstrap_threshold: int = immediate_window + recent_window
+
+	var vault_count: int = memory_comp.get_vault_memory_count(target_agent.name)
+	var loaded_count: int = memory_comp.memories.size()
+
+	if vault_count <= bootstrap_threshold:
+		return {
+			"success": false,
+			"message": "%s doesn't have enough vault memories to bootstrap. Need more than %d, has %d in vault (%d loaded)." % [
+				target_agent.name,
+				bootstrap_threshold,
+				vault_count,
+				loaded_count
+			]
+		}
+
+	# Trigger bootstrap
+	memory_comp.bootstrap_summaries_async(func():
+		print("[Actor] %s: Summary bootstrap completed" % target_agent.name)
+	)
+
+	return {
+		"success": true,
+		"message": "Bootstrapping summaries for %s (%d vault memories, %d loaded). This will run asynchronously..." % [
+			target_agent.name,
+			vault_count,
+			loaded_count
+		]
+	}
 
 
 func _cmd_llm_status(_args: Array) -> Dictionary:

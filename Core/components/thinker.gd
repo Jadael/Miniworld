@@ -1,9 +1,16 @@
 ## ThinkerComponent: Enables AI agents to make autonomous decisions
 ##
 ## Uses Shoggoth (LLM interface) to:
-## - Observe the world through Memory component
+## - Observe the world through Memory component with multi-scale context
 ## - Make decisions based on profile and memories
 ## - Execute commands through Actor component using MOO-style syntax
+##
+## Memory Context Engineering:
+## - Uses cascading temporal summaries (Anthropic context engineering pattern)
+## - Immediate window: N most recent memories in full detail
+## - Recent summary: LLM-generated summary of aged-out memories
+## - Long-term summary: Progressively compacted summary of all older memories
+## - Provides agents with historical context beyond immediate window
 ##
 ## Dependencies:
 ## - ComponentBase: Base class for all components
@@ -256,10 +263,17 @@ func _build_context() -> Dictionary:
 			if obj != owner and obj.has_component("actor"):
 				context.occupants.append(obj.name)
 
-	# Retrieve recent memories if available
+	# Retrieve recent memories with multi-scale context if available
 	if owner.has_component("memory"):
 		var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
-		context.recent_memories = memory_comp.get_recent_memories(20)  # Reduced from 64 for faster inference
+
+		# Get memories with cascading temporal summaries
+		# Using 64 immediate memories to provide rich context for decision-making
+		var memory_context: Dictionary = memory_comp.get_recent_context(64)
+		context.recent_memories = memory_context.immediate
+		context.recent_summary = memory_context.recent_summary
+		context.longterm_summary = memory_context.longterm_summary
+		context.has_summaries = memory_context.has_summaries
 
 		# Retrieve contextually relevant notes based on location and occupants
 		# Create typed array for occupants to satisfy type checker
@@ -273,6 +287,10 @@ func _build_context() -> Dictionary:
 			3  # max 3 relevant notes
 		)
 	else:
+		context.recent_memories = []
+		context.recent_summary = ""
+		context.longterm_summary = ""
+		context.has_summaries = false
 		context.relevant_notes = []
 
 	return context
@@ -285,22 +303,27 @@ func _construct_prompt(context: Dictionary) -> String:
 	1. Identity & Profile (system context)
 	2. Command List & Format Instructions
 	3. Relevant Notes (from personal wiki)
-	4. Recent Transcript (few-shot examples - critical for base models!)
+	4. Multi-Scale Memory Context:
+	   - Long-term summary (oldest compressed memories)
+	   - Recent summary (memories outside immediate window)
+	   - Recent transcript (immediate memories in full detail)
 	5. Current Situation (minimal summary)
 	6. Command Prompt ("> " - triggers command generation)
 
 	The transcript placement is KEY for base models: by putting it immediately
 	before the command prompt, recent commands serve as few-shot examples showing
-	the model exactly what format to use, which helps get base models behaving.
+	the model exactly what format to use. Summaries provide historical context
+	without overwhelming the attention budget.
 
 	Args:
-		context: Dictionary from _build_context() with situation info
+		context: Dictionary from _build_context() with situation info and memory summaries
 
 	Returns:
 		String containing the complete LLM prompt
 
 	Notes:
 		Expects LLM to respond with MOO-style: "command args | reason"
+		Uses cascading temporal summaries (Anthropic context engineering pattern)
 		The transcript-before-prompt structure is optimized for base models
 		while remaining effective for instruct/chat models.
 	"""
@@ -311,20 +334,20 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "%s\n\n" % context.profile
 
 	# Available command reference early for context
-	prompt += "BASIC COMMANDS:\n"
+	prompt += "# Basic Commands:\n"
 	var command_list: Array = []
 	if owner.has_property("thinker.command_list"):
 		command_list = owner.get_property("thinker.command_list")
 	else:
 		# Default command list
 		command_list = [
-			"GO <exit>: Move to another location",
-			"SAY <message>: Speak to others",
-			"EMOTE <action>: Perform an action",
-			"EXAMINE <target>: Look at something/someone closely",
+			"GO <exit> | <reasoning>: Move to another location",
+			"SAY <message> | <reasoning>: Speak to others",
+			"EMOTE <action> | <reasoning>: Perform an action",
+			"EXAMINE <target> | <reasoning>: Look at something/someone closely",
 			"NOTE <title> -> <content>: Save important information to your personal wiki",
-			"RECALL <query>: Search your notes for relevant information",
-			"DREAM: Review jumbled memories for new insights (when feeling stuck or curious)",
+			"RECALL <query> | <reasoning>: Search your notes for relevant information",
+			"DREAM | <reasoning>: Review jumbled memories for new insights (when feeling stuck or curious)",
 			"@MY-PROFILE: View your personality profile and think interval",
 			"@MY-DESCRIPTION: View how others see you",
 			"@SET-PROFILE -> <text>: Update your personality (self-modification)",
@@ -362,6 +385,17 @@ func _construct_prompt(context: Dictionary) -> String:
 			prompt += "**%s**\n%s\n\n" % [note_title, note_content]
 			notes_shown_in_memories.append(note_title)
 		prompt += "\n"
+
+	# Multi-scale memory context (cascading temporal summaries)
+	# Long-term summary (oldest compressed memories)
+	if context.has("longterm_summary") and context.longterm_summary != "":
+		prompt += "## Older Memories (Summary)\n\n"
+		prompt += "%s\n\n" % context.longterm_summary
+
+	# Recent summary (memories that aged out of immediate window)
+	if context.has("recent_summary") and context.recent_summary != "":
+		prompt += "## Recent Past (Summary)\n\n"
+		prompt += "%s\n\n" % context.recent_summary
 
 	# Recent observations from memory - TRANSCRIPT doubles as both context and few-shot examples
 	# This goes LAST, so that base models continue it naturally

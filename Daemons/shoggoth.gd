@@ -238,13 +238,15 @@ func _run_initialization_test() -> void:
 	var model_name = config.get_value("ollama", "model", "gemma3:4b") if config else "unknown"
 	initialization_status.emit("Testing model '%s'..." % model_name)
 
-	print("[Shoggoth] Starting initialization test with prompt: '%s'" % INIT_TEST_PROMPT)
+	print("[Shoggoth] ━━━ STARTING INITIALIZATION TEST ━━━")
+	print("[Shoggoth] Test prompt: '%s'" % INIT_TEST_PROMPT)
+	print("[Shoggoth] Target model: '%s'" % model_name)
 
 	if ollama_client == null:
-		print("[Shoggoth] ERROR: ollama_client is null, cannot run init test")
+		print("[Shoggoth] ✗ ERROR: ollama_client is null, cannot run init test")
 		return
 
-	print("[Shoggoth] Sending init test to Ollama...")
+	print("[Shoggoth] → Sending test request to Ollama...")
 	# Run init test directly without queuing to avoid circular dependency
 	# Include stop token to verify server-side early termination is working
 	var stop_tokens = config.get_value("ollama", "stop_tokens", ["\n"])
@@ -268,26 +270,29 @@ func _on_init_test_completed(result: String) -> void:
 		queued during initialization, begins processing them now.
 		Emits initialization_status for UI visibility.
 	"""
-	print("[Shoggoth] Init test completed with result: '%s'" % result)
-
-	# Check if LLM responded at all
 	var llm_success = result.strip_edges() != ""
-	print("[Shoggoth] LLM success: %s" % llm_success)
+
+	print("[Shoggoth] ━━━ INITIALIZATION TEST COMPLETE ━━━")
+	print("[Shoggoth] Test result: '%s'" % result)
+	print("[Shoggoth] LLM available: %s" % ("YES" if llm_success else "NO"))
 
 	# Check if stop token worked (response should be single line)
 	if llm_success and "\n" in result:
-		push_warning("[Shoggoth] Stop token did not work - response contains newline!")
-		print("[Shoggoth] Response has %d lines (expected 1)" % result.split("\n").size())
-		for i in result.split("\n").size():
-			print("[Shoggoth]   Line %d: '%s'" % [i, result.split("\n")[i]])
+		push_warning("[Shoggoth] ⚠ Stop token failed - response contains newline!")
+		var lines = result.split("\n")
+		print("[Shoggoth] Response has %d lines (expected 1):" % lines.size())
+		for i in lines.size():
+			print("[Shoggoth]   Line %d: '%s'" % [i, lines[i]])
 	elif llm_success:
-		print("[Shoggoth] Stop token working correctly - single line response")
+		print("[Shoggoth] ✓ Stop token working correctly (single-line response)")
 
 	if llm_success:
 		var model_name = config.get_value("ollama", "model", "unknown") if config else "unknown"
 		initialization_status.emit("✓ LLM initialized successfully (model: %s)" % model_name)
+		print("[Shoggoth] ✓ Model '%s' ready for inference" % model_name)
 	else:
 		initialization_status.emit("✗ LLM initialization failed - received empty response")
+		print("[Shoggoth] ✗ Initialization failed - no response from LLM")
 
 	models_initialized.emit(llm_success)
 
@@ -299,16 +304,18 @@ func _on_init_test_completed(result: String) -> void:
 	#})
 
 	is_initializing = false
-	print("[Shoggoth] is_initializing set to false")
+	print("[Shoggoth] → Exiting initialization mode")
 
 	# Now that initialization is complete, start processing any queued tasks
-	print("[Shoggoth] Checking task queue: %d tasks, is_processing_task: %s" % [task_queue.size(), is_processing_task])
 	if not task_queue.is_empty() and not is_processing_task:
-		print("[Shoggoth] Starting to process queued tasks...")
+		print("[Shoggoth] → Found %d queued tasks, starting processing..." % task_queue.size())
 		#Chronicler.log_event(self, "processing_queued_tasks_after_init", {
 		#	"queue_length": task_queue.size()
 		#})
 		_process_next_task()
+	else:
+		print("[Shoggoth] → No queued tasks, entering idle state")
+	print("[Shoggoth] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 func set_model(model_name: String) -> void:
 	"""Change the active LLM model and re-initialize.
@@ -405,7 +412,9 @@ func submit_chat(messages: Array, parameters: Dictionary = {}) -> String:
 		"mode": "chat"
 	}
 	task_queue.append(task)
-	print("[Shoggoth] Chat task queued: %s (queue length: %d, is_processing: %s, is_initializing: %s)" % [task_id, task_queue.size(), is_processing_task, is_initializing])
+	print("[Shoggoth] Task queued: %s | Mode: %s | Queue: %d tasks | Processing: %s | Initializing: %s" % [
+		task_id, task["mode"], task_queue.size(), is_processing_task, is_initializing
+	])
 
 	#Chronicler.log_event(self, "chat_submitted", {
 	#	"task_id": task_id,
@@ -415,7 +424,7 @@ func submit_chat(messages: Array, parameters: Dictionary = {}) -> String:
 	#})
 
 	if not is_processing_task:
-		print("[Shoggoth] Attempting to process task immediately...")
+		print("[Shoggoth] → Attempting immediate task processing (queue not busy)")
 		_process_next_task()
 
 	return task_id
@@ -432,17 +441,21 @@ func _process_next_task() -> void:
 		LLM backend. Processing begins automatically when tasks are submitted to an
 		idle queue, or when the current task completes.
 	"""
-	print("[Shoggoth] _process_next_task called (queue: %d, is_processing: %s, is_initializing: %s)" % [task_queue.size(), is_processing_task, is_initializing])
+	print("[Shoggoth] Processing queue check | Queue: %d tasks | Processing: %s | Initializing: %s" % [
+		task_queue.size(), is_processing_task, is_initializing
+	])
 
 	if task_queue.is_empty():
 		is_processing_task = false
 		current_task = {}
-		print("[Shoggoth] Task queue empty, returning")
+		print("[Shoggoth] ✓ Queue empty, entering idle state")
 		return
 
 	# Don't process tasks while still initializing or if client isn't ready
 	if is_initializing or not ollama_client:
-		print("[Shoggoth] Deferring task processing (is_initializing: %s, client_ready: %s)" % [is_initializing, ollama_client != null])
+		print("[Shoggoth] ⏸ Deferring task processing | Reason: %s" % [
+			"LLM initializing" if is_initializing else "Client not ready"
+		])
 		#Chronicler.log_event(self, "task_processing_deferred", {
 		#	"is_initializing": is_initializing,
 		#	"client_ready": ollama_client != null,
@@ -454,7 +467,10 @@ func _process_next_task() -> void:
 	is_processing_task = true
 	current_task = task_queue.pop_front()
 	retry_count = 0
-	print("[Shoggoth] Starting task: %s" % current_task.get("id", "unknown"))
+	var task_mode = current_task.get("mode", "unknown")
+	print("[Shoggoth] ▶ Starting task %s | Mode: %s | Remaining in queue: %d" % [
+		current_task.get("id", "unknown"), task_mode, task_queue.size()
+	])
 
 	var options = _apply_task_parameters()
 	_execute_current_task(options)
@@ -557,9 +573,10 @@ func _execute_current_task(options: Dictionary) -> void:
 
 		# Resolve prompt: either invoke Callable or use String directly
 		if prompt_generator is Callable:
-			print("[Shoggoth] Invoking prompt generator just-in-time for task: %s" % current_task.get("id", "unknown"))
+			print("[Shoggoth] → Invoking just-in-time prompt generator (ensures fresh context)")
 			prompt_text = prompt_generator.call()
 		elif prompt_generator is String:
+			print("[Shoggoth] → Using pre-generated prompt string")
 			prompt_text = prompt_generator
 		else:
 			_handle_task_error("Async generate task prompt_generator must be String or Callable")
@@ -572,8 +589,9 @@ func _execute_current_task(options: Dictionary) -> void:
 		if system_prompt != "":
 			options["system"] = system_prompt
 
-		print("[Shoggoth] Sending generate request: prompt_length=%d, system_prompt_length=%d" % [prompt_text.length(), system_prompt.length()])
-		print("[Shoggoth] First 200 chars: %s" % prompt_text.substr(0, 200))
+		print("[Shoggoth] → Sending to Ollama | Prompt: %d chars | System: %d chars | Preview: \"%s...\"" % [
+			prompt_text.length(), system_prompt.length(), prompt_text.substr(0, 100).replace("\n", "\\n")
+		])
 		ollama_client.generate(prompt_text, options)
 
 	elif mode == "chat":
@@ -648,16 +666,19 @@ func _on_generate_failed(error: String) -> void:
 		If this is during initialization, analyzes the error and emits
 		detailed diagnostic information via llm_connection_failed signal.
 	"""
-	print("[Shoggoth] _on_generate_failed called with error: %s" % error)
+	print("[Shoggoth] ✗ LLM request failed | Error: %s" % error)
 
 	# If we're initializing, this is a critical failure - analyze and emit detailed diagnostics
 	if is_initializing:
+		print("[Shoggoth] ✗ INITIALIZATION FAILED")
 		initialization_status.emit("✗ LLM initialization failed")
 		_analyze_and_report_error(error)
 		is_initializing = false
 		models_initialized.emit(false)
 		return
 
+	var task_id = current_task.get("id", "unknown")
+	print("[Shoggoth] → Retrying task %s (retry %d/%d)" % [task_id, retry_count + 1, MAX_RETRIES])
 	_handle_task_error("Ollama generation failed: " + error)
 
 func _on_generate_text_finished(result: Dictionary) -> void:
@@ -684,25 +705,31 @@ func _on_generate_text_finished(result: Dictionary) -> void:
 	var content: String = result.get("content", "")
 	var thinking: String = result.get("thinking", "")
 
-	print("[Shoggoth] _on_generate_text_finished called with content length: %d, thinking length: %d, is_initializing: %s" % [content.length(), thinking.length(), is_initializing])
+	print("[Shoggoth] ◀ Received LLM response | Content: %d chars | Thinking: %d chars | Context: %s" % [
+		content.length(), thinking.length(), "INIT" if is_initializing else "TASK"
+	])
 
 	# If we're still initializing, this is the init test response
 	if is_initializing:
+		print("[Shoggoth] → Routing to initialization handler")
 		content = _process_result(content)
 		_on_init_test_completed(content)
 		return
 
 	# Normal task completion
 	if current_task.is_empty():
-		print("[Shoggoth] WARNING: Received result but current_task is empty!")
+		print("[Shoggoth] ⚠ WARNING: Received result but current_task is empty!")
 		return
 
-	print("[Shoggoth] Processing task completion for task: %s" % current_task.get("id", "unknown"))
+	var task_id = current_task.get("id", "unknown")
+	print("[Shoggoth] ✓ Task completed: %s | Result preview: \"%s...\"" % [
+		task_id, content.substr(0, 60).replace("\n", "\\n")
+	])
 	content = _process_result(content)
 
 	# Store thinking content for potential use by callbacks (agents can save it to memory)
 	if thinking != "":
-		print("[Shoggoth] Task included %d chars of chain-of-thought reasoning" % thinking.length())
+		print("[Shoggoth] → Including chain-of-thought reasoning in callback (%d chars)" % thinking.length())
 		# Pass both content and thinking to callback/signal
 		_emit_task_completion(content, thinking)
 	else:
@@ -712,6 +739,7 @@ func _on_generate_text_finished(result: Dictionary) -> void:
 
 	# Defer next task processing to give events time to propagate
 	# This ensures other agents observe completed actions before building their prompts
+	print("[Shoggoth] → Deferring next task processing (allows event propagation)")
 	call_deferred("_process_next_task")
 
 func _process_result(result: String) -> String:
@@ -860,13 +888,15 @@ func generate_async(prompt: Variant, system_prompt: String, callback: Callable) 
 		"parameters": {}
 	}
 	task_queue.append(task)
-	print("[Shoggoth] Async generate task queued: %s (queue length: %d, is_processing: %s, is_initializing: %s)" % [task_id, task_queue.size(), is_processing_task, is_initializing])
+	print("[Shoggoth] Task queued: %s | Mode: %s | Queue: %d tasks | Processing: %s | Initializing: %s" % [
+		task_id, task["mode"], task_queue.size(), is_processing_task, is_initializing
+	])
 
 	# Register callback - Shoggoth will invoke it when task completes
 	pending_callbacks[task_id] = callback
 
 	if not is_processing_task:
-		print("[Shoggoth] Attempting to process task immediately...")
+		print("[Shoggoth] → Attempting immediate task processing (queue not busy)")
 		_process_next_task()
 
 	return task_id

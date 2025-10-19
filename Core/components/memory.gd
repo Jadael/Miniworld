@@ -3,8 +3,19 @@
 ## Objects with this component can:
 ## - Automatically record own commands and results
 ## - Automatically record observations of others
-## - Retrieve recent or relevant memories
-## - Store notes
+## - Retrieve recent or relevant memories with multi-scale context
+## - Store notes with semantic search
+##
+## Memory Compaction (Progressive Summarization):
+## - Uses cascading temporal summaries (Anthropic context engineering pattern)
+## - Three-tier system:
+##   1. Immediate window (64 memories) - full detail, used as few-shot examples
+##   2. Mid-term summary (prior 64 memories) - paragraph summary when compacted
+##   3. Long-term summary (all older) - progressively compacted via waterfall
+## - Compaction triggers at 256 total memories (not aggressive cutoff)
+## - Waterfall pattern: old mid-term → long-term, fresh mid-term generated
+## - Provides historical context without overwhelming LLM attention budget
+## - Manual compaction via @compact-memories command
 ##
 ## This component automatically connects to ActorComponent signals when both
 ## are present on the same WorldObject, enabling seamless memory recording
@@ -23,6 +34,7 @@
 ## - ActorComponent: Auto-connects for memory recording (optional but recommended)
 ## - MarkdownVault: For persistence to disk
 ## - MemoryBudget: Dynamic memory allocation based on system resources
+## - Shoggoth: For LLM-powered summarization (optional)
 ##
 ## Related: ThinkerComponent (uses memories for AI decisions)
 
@@ -43,6 +55,16 @@ var max_memories: int = 65536  # Default fallback if MemoryBudget unavailable
 
 ## VectorStore component for semantic search
 var vector_store: VectorStoreComponent = null
+
+## Memory compaction summaries (multi-scale context retention)
+## Recent summary: LLM-generated summary of memories that aged out of immediate window
+var recent_summary: String = ""
+## Long-term summary: Progressively compacted summary of all older memories
+var longterm_summary: String = ""
+## Last compaction timestamp (for tracking when summaries were generated)
+var last_compaction_time: int = 0
+## Bootstrap flag to prevent duplicate initialization
+var _bootstrap_attempted: bool = false
 
 
 func _on_added(obj: WorldObject) -> void:
@@ -66,12 +88,15 @@ func _on_added(obj: WorldObject) -> void:
 		var actor_comp: ActorComponent = obj.get_component("actor") as ActorComponent
 
 		# Record own commands and their results
-		if actor_comp.command_executed.connect(_on_command_executed) != OK:
-			push_warning("MemoryComponent: Failed to connect to command_executed")
+		# Prevent duplicate connections (can happen during save/load cycles)
+		if not actor_comp.command_executed.is_connected(_on_command_executed):
+			if actor_comp.command_executed.connect(_on_command_executed) != OK:
+				push_warning("MemoryComponent: Failed to connect to command_executed")
 
 		# Record observations of others
-		if actor_comp.event_observed.connect(_on_event_observed) != OK:
-			push_warning("MemoryComponent: Failed to connect to event_observed")
+		if not actor_comp.event_observed.is_connected(_on_event_observed):
+			if actor_comp.event_observed.connect(_on_event_observed) != OK:
+				push_warning("MemoryComponent: Failed to connect to event_observed")
 
 
 func _on_removed(obj: WorldObject) -> void:
@@ -154,6 +179,15 @@ func add_memory(content: String, metadata: Dictionary = {}) -> void:
 	if memories.size() > max_memories:
 		memories = memories.slice(memories.size() - max_memories, memories.size())
 
+	# Check if we should compact (threshold-based, async)
+	# Note: Compaction is already async, so we just call it directly
+	# The LLM calls within compact_memories_async() handle async execution
+	if should_compact():
+		compact_memories_async()
+
+	# Bootstrap summaries if we have enough memories but no summaries yet
+	_check_and_bootstrap_summaries()
+
 
 func add_memory_from_vault(content: String, metadata: Dictionary, timestamp: int) -> void:
 	"""Add a memory loaded from vault WITHOUT triggering re-save.
@@ -202,6 +236,34 @@ func get_recent_memories(count: int = 64) -> Array[Dictionary]:
 	"""
 	var start_idx = max(0, memories.size() - count)
 	return memories.slice(start_idx, memories.size())
+
+
+func get_recent_context(count: int = 20) -> Dictionary:
+	"""Get recent memories with multi-scale context summaries.
+
+	This returns the most recent memories along with cascading temporal
+	summaries for context retention beyond the immediate window.
+
+	Args:
+		count: Number of recent memories to retrieve (immediate window)
+
+	Returns:
+		Dictionary with keys:
+		- immediate: Array[Dictionary] - Most recent N memories in full detail
+		- recent_summary: String - Summary of memories that aged out
+		- longterm_summary: String - Summary of all older memories
+		- has_summaries: bool - True if any summaries exist
+
+	Notes:
+		Use this instead of get_recent_memories() for AI agent prompts
+		to get the full multi-scale context.
+	"""
+	return {
+		"immediate": get_recent_memories(count),
+		"recent_summary": recent_summary,
+		"longterm_summary": longterm_summary,
+		"has_summaries": recent_summary != "" or longterm_summary != ""
+	}
 
 
 func get_all_memories() -> Array[Dictionary]:
@@ -396,6 +458,394 @@ func format_notes_as_text() -> String:
 	return text
 
 
+## Memory Compaction (Multi-scale Context Retention)
+
+func _get_compaction_config(key: String, default: Variant) -> Variant:
+	"""Get compaction configuration from vault.
+
+	Args:
+		key: Config key under "memory_compaction"
+		default: Default value if not found
+
+	Returns:
+		Value from vault config or default
+	"""
+	if TextManager:
+		return TextManager.get_config("memory_compaction." + key, default)
+	return default
+
+
+func compact_memories_async(callback: Callable = Callable()) -> void:
+	"""Compact memories using waterfall pattern with LLM summaries.
+
+	This implements cascading temporal summaries as described in Anthropic's
+	context engineering article:
+
+	1. Long-term summary = LLM(recent summary + long-term summary)
+	2. Recent summary = LLM(memories outside immediate window)
+	3. Immediate context = N newest memories (unchanged)
+
+	The waterfall preserves historical context while keeping the most
+	recent details in full fidelity.
+
+	Args:
+		callback: Optional callback when compaction completes
+
+	Notes:
+		- Uses /api/generate endpoint (optimized for base models)
+		- Summaries stored in component properties
+		- Called automatically when memories exceed threshold
+		- Can be manually triggered via @compact-memories command
+	"""
+	if not Shoggoth or not Shoggoth.ollama_client:
+		print("[Memory] %s: Compaction skipped (no LLM available)" % (owner.name if owner else "unknown"))
+		if callback.is_valid():
+			callback.call()
+		return
+
+	# Get config values
+	var immediate_window: int = _get_compaction_config("immediate_window", 64)
+	var recent_window: int = _get_compaction_config("recent_window", 64)
+
+	# Nothing to compact if we have fewer memories than immediate window
+	if memories.size() <= immediate_window:
+		if callback.is_valid():
+			callback.call()
+		return
+
+	print("[Memory] %s: Starting compaction (%d memories, %d immediate, %d recent)" % [
+		owner.name if owner else "unknown",
+		memories.size(),
+		immediate_window,
+		recent_window
+	])
+
+	# Step 1: Update long-term summary (combine recent + longterm)
+	# Only if we have a recent summary to waterfall
+	if recent_summary != "":
+		_compact_longterm_async(func():
+			# Step 2: Generate new recent summary from aged-out memories
+			_compact_recent_async(immediate_window, recent_window, func():
+				last_compaction_time = int(Time.get_unix_time_from_system())
+				print("[Memory] %s: Compaction complete" % (owner.name if owner else "unknown"))
+				if callback.is_valid():
+					callback.call()
+			)
+		)
+	else:
+		# First compaction: just create recent summary
+		_compact_recent_async(immediate_window, recent_window, func():
+			last_compaction_time = int(Time.get_unix_time_from_system())
+			print("[Memory] %s: Compaction complete (first run)" % (owner.name if owner else "unknown"))
+			if callback.is_valid():
+				callback.call()
+		)
+
+
+func _compact_longterm_async(callback: Callable) -> void:
+	"""Update long-term summary by combining recent + longterm summaries.
+
+	Args:
+		callback: Called when summary generation completes
+	"""
+	# Build prompt for waterfall compaction (pure structural, no instructions)
+	var prompt: String = "# Recent Summary:\n%s\n\n" % recent_summary
+	if longterm_summary != "":
+		prompt += "# Older Summary:\n%s\n\n" % longterm_summary
+	prompt += "# Combined Summary:\n> "
+
+	# Use generate mode with stop tokens
+	Shoggoth.generate_async(
+		prompt,
+		_get_compaction_config("profile", "summarizer"),
+		func(result: String):
+			var summary: String = result.strip_edges()
+			if summary != "":
+				longterm_summary = summary
+				print("[Memory] %s: Long-term summary updated (%d chars)" % [
+					owner.name if owner else "unknown",
+					longterm_summary.length()
+				])
+			callback.call()
+	)
+
+
+func _compact_recent_async(immediate_window: int, recent_window: int, callback: Callable) -> void:
+	"""Generate recent summary from memories that aged out of immediate window.
+
+	Args:
+		immediate_window: Number of newest memories to keep in full detail
+		recent_window: Number of memories before immediate to summarize
+		callback: Called when summary generation completes
+	"""
+	# Calculate which memories to summarize
+	var total: int = memories.size()
+	var recent_start: int = max(0, total - immediate_window - recent_window)
+	var recent_end: int = max(0, total - immediate_window)
+
+	# Nothing to summarize if recent window is empty
+	if recent_start >= recent_end:
+		callback.call()
+		return
+
+	# Extract memories to summarize
+	var memories_to_summarize: Array[Dictionary] = []
+	for i in range(recent_start, recent_end):
+		memories_to_summarize.append(memories[i])
+
+	# Build prompt optimized for base models (leading structure)
+	var prompt: String = "# Memories:\n"
+	for memory in memories_to_summarize:
+		prompt += "%s\n" % memory.content
+	prompt += "\n# Summary:\n> "
+
+	# Use generate mode with stop tokens
+	Shoggoth.generate_async(
+		prompt,
+		_get_compaction_config("profile", "summarizer"),
+		func(result: String):
+			var summary: String = result.strip_edges()
+			if summary != "":
+				recent_summary = summary
+				print("[Memory] %s: Recent summary updated (%d chars)" % [
+					owner.name if owner else "unknown",
+					recent_summary.length()
+				])
+			callback.call()
+	)
+
+
+func should_compact() -> bool:
+	"""Check if memories should be compacted based on threshold.
+
+	Returns:
+		True if compaction should run (memories exceed threshold)
+
+	Notes:
+		Compacts when memories exceed configurable threshold (default: 256).
+		This threshold should be significantly larger than immediate + recent windows
+		to prevent overly aggressive compaction. Compaction is progressive:
+		old mid-term → long-term, then fresh mid-term generated from aged-out memories.
+	"""
+	var compaction_threshold: int = _get_compaction_config("compaction_threshold", 256)
+
+	return memories.size() > compaction_threshold
+
+
+func _check_and_bootstrap_summaries() -> void:
+	"""Check if agent needs bootstrap summaries and generate them if appropriate.
+
+	Bootstrap happens when:
+	- Agent has never attempted bootstrap before
+	- Agent has sufficient memories IN VAULT (> immediate_window + recent_window)
+	- Agent has no existing summaries
+	- LLM is available
+
+	This allows existing agents to benefit from the memory compaction system
+	without waiting to accumulate 256+ memories for first compaction.
+
+	Notes:
+		Checks vault file count, not in-RAM count, since MemoryBudget may
+		limit loaded memories while vault has full history.
+	"""
+	# Only bootstrap once per component lifetime
+	if _bootstrap_attempted:
+		return
+
+	_bootstrap_attempted = true
+
+	# Skip if no LLM available
+	if not Shoggoth or not Shoggoth.ollama_client:
+		return
+
+	# Skip if we already have summaries
+	if recent_summary != "" or longterm_summary != "":
+		return
+
+	# Skip if no owner (shouldn't happen but defensive)
+	if not owner:
+		return
+
+	var immediate_window: int = _get_compaction_config("immediate_window", 64)
+	var recent_window: int = _get_compaction_config("recent_window", 64)
+	var bootstrap_threshold: int = immediate_window + recent_window
+
+	# Check vault file count, not in-RAM count (MemoryBudget may limit loaded memories)
+	var vault_count: int = get_vault_memory_count(owner.name)
+
+	# Only bootstrap if we have enough memories to summarize
+	if vault_count <= bootstrap_threshold:
+		return
+
+	print("[Memory] %s: Bootstrapping summaries (%d vault memories available, %d loaded)" % [
+		owner.name,
+		vault_count,
+		memories.size()
+	])
+
+	# Generate initial summaries from existing memories
+	bootstrap_summaries_async()
+
+
+func bootstrap_summaries_async(callback: Callable = Callable()) -> void:
+	"""Bootstrap initial summaries for agents with existing memories.
+
+	Generates both mid-term and long-term summaries from the agent's
+	existing memory history (loaded from vault), allowing them to immediately
+	benefit from the multi-scale context system.
+
+	Args:
+		callback: Optional callback when bootstrap completes
+
+	Notes:
+		This is called automatically once per agent if they have sufficient
+		memories but no existing summaries. It creates:
+		1. Long-term summary from all oldest vault memories
+		2. Mid-term summary from memories in the recent window
+
+		Loads ALL memories from vault temporarily for summarization,
+		regardless of MemoryBudget RAM limits.
+	"""
+	if not Shoggoth or not Shoggoth.ollama_client:
+		if callback.is_valid():
+			callback.call()
+		return
+
+	if not owner:
+		if callback.is_valid():
+			callback.call()
+		return
+
+	var immediate_window: int = _get_compaction_config("immediate_window", 64)
+	var recent_window: int = _get_compaction_config("recent_window", 64)
+
+	# Load ALL memories from vault (not limited by MemoryBudget)
+	# We need the full history to generate accurate summaries
+	var vault_count: int = get_vault_memory_count(owner.name)
+
+	# Not enough vault memories to bootstrap
+	if vault_count <= immediate_window:
+		if callback.is_valid():
+			callback.call()
+		return
+
+	print("[Memory] %s: Starting bootstrap (loading %d vault memories for summarization)" % [
+		owner.name, vault_count
+	])
+
+	# Load all memories from vault for summarization
+	var all_memories: Array[Dictionary] = load_memories_from_vault(owner.name, vault_count)
+
+	print("[Memory] %s: Loaded %d memories from vault" % [owner.name, all_memories.size()])
+
+	# Step 1: Generate long-term summary from older memories (everything except immediate + recent)
+	var longterm_end: int = max(0, all_memories.size() - immediate_window - recent_window)
+	if longterm_end > 0:
+		_bootstrap_longterm_summary_from_array(all_memories, longterm_end, func():
+			# Step 2: Generate mid-term summary from recent window
+			_bootstrap_midterm_summary_from_array(all_memories, immediate_window, recent_window, func():
+				last_compaction_time = int(Time.get_unix_time_from_system())
+				print("[Memory] %s: Bootstrap complete" % owner.name)
+				if callback.is_valid():
+					callback.call()
+			)
+		)
+	else:
+		# No long-term memories, just generate mid-term
+		_bootstrap_midterm_summary_from_array(all_memories, immediate_window, recent_window, func():
+			last_compaction_time = int(Time.get_unix_time_from_system())
+			print("[Memory] %s: Bootstrap complete (mid-term only)" % owner.name)
+			if callback.is_valid():
+				callback.call()
+		)
+
+
+func _bootstrap_longterm_summary_from_array(all_memories: Array[Dictionary], end_index: int, callback: Callable) -> void:
+	"""Generate initial long-term summary from oldest memories in array.
+
+	Args:
+		all_memories: Full memory array loaded from vault
+		end_index: Index up to which to summarize (non-inclusive)
+		callback: Called when summary generation completes
+	"""
+	# Gather oldest memories for long-term summary
+	var memories_to_summarize: Array[Dictionary] = []
+	for i in range(0, end_index):
+		memories_to_summarize.append(all_memories[i])
+
+	if memories_to_summarize.size() == 0:
+		callback.call()
+		return
+
+	# Build prompt optimized for base models (leading structure)
+	var prompt: String = "# Memories:\n"
+	for memory in memories_to_summarize:
+		prompt += "%s\n" % memory.content
+	prompt += "\n# Summary:\n> "
+
+	# Generate summary
+	Shoggoth.generate_async(
+		prompt,
+		_get_compaction_config("profile", "summarizer"),
+		func(result: String):
+			var summary: String = result.strip_edges()
+			if summary != "":
+				longterm_summary = summary
+				print("[Memory] %s: Long-term summary created (%d chars from %d memories)" % [
+					owner.name if owner else "unknown",
+					longterm_summary.length(),
+					memories_to_summarize.size()
+				])
+			callback.call()
+	)
+
+
+func _bootstrap_midterm_summary_from_array(all_memories: Array[Dictionary], immediate_window: int, recent_window: int, callback: Callable) -> void:
+	"""Generate initial mid-term summary from recent window in array.
+
+	Args:
+		all_memories: Full memory array loaded from vault
+		immediate_window: Number of newest memories to skip (keep in full detail)
+		recent_window: Number of memories before immediate to summarize
+		callback: Called when summary generation completes
+	"""
+	# Calculate which memories to summarize for mid-term
+	var total: int = all_memories.size()
+	var recent_start: int = max(0, total - immediate_window - recent_window)
+	var recent_end: int = max(0, total - immediate_window)
+
+	if recent_start >= recent_end:
+		callback.call()
+		return
+
+	# Extract memories to summarize
+	var memories_to_summarize: Array[Dictionary] = []
+	for i in range(recent_start, recent_end):
+		memories_to_summarize.append(all_memories[i])
+
+	# Build prompt optimized for base models (leading structure)
+	var prompt: String = "# Memories:\n"
+	for memory in memories_to_summarize:
+		prompt += "%s\n" % memory.content
+	prompt += "\n# Summary:\n> "
+
+	# Generate summary
+	Shoggoth.generate_async(
+		prompt,
+		_get_compaction_config("profile", "summarizer"),
+		func(result: String):
+			var summary: String = result.strip_edges()
+			if summary != "":
+				recent_summary = summary
+				print("[Memory] %s: Mid-term summary created (%d chars from %d memories)" % [
+					owner.name if owner else "unknown",
+					recent_summary.length(),
+					memories_to_summarize.size()
+				])
+			callback.call()
+	)
+
+
 ## Markdown Vault Persistence
 
 func save_memory_to_vault(owner_name: String, memory_text: String, metadata: Dictionary) -> void:
@@ -436,6 +886,26 @@ func save_memory_to_vault(owner_name: String, memory_text: String, metadata: Dic
 	content += memory_text + "\n"
 
 	MarkdownVault.write_file(mem_path, content)
+
+
+func get_vault_memory_count(owner_name: String) -> int:
+	"""Count total memory files in vault (not just loaded in RAM).
+
+	Args:
+		owner_name: Name of the agent (for directory path)
+
+	Returns:
+		Total number of memory files stored in vault
+
+	Notes:
+		Used to determine if bootstrap is worthwhile, since in-RAM
+		memory count may be limited by MemoryBudget.
+	"""
+	var agent_path: String = MarkdownVault.AGENTS_PATH + "/" + MarkdownVault.sanitize_filename(owner_name)
+	var mem_path: String = agent_path + "/memories"
+
+	var files: Array[String] = MarkdownVault.list_files(mem_path, ".md")
+	return files.size()
 
 
 func load_memories_from_vault(owner_name: String, max_count: int = 50) -> Array[Dictionary]:
