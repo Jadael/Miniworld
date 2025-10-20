@@ -346,6 +346,7 @@ func _construct_prompt(context: Dictionary) -> String:
 			"SAY <message> | <reasoning>: Speak to others",
 			"EMOTE <action> | <reasoning>: Perform an action",
 			"EXAMINE <target> | <reasoning>: Look at something/someone closely",
+			"THINK <reasoning>: Reason privately without taking action",
 			"NOTE <title> -> <content>: Save important information to your personal wiki",
 			"RECALL <query> | <reasoning>: Search your notes for relevant information",
 			"DREAM | <reasoning>: Review jumbled memories for new insights (when feeling stuck or curious)",
@@ -366,6 +367,7 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "go garden | Want to explore somewhere new.\n"
 	prompt += "say Hello! How are you today?\n"
 	prompt += "emote waves enthusiastically | They look friendly, making a connection.\n"
+	prompt += "think I should wait for a bit and see what they say.\n"
 	prompt += "note Goal -> Learn the game commands.\n\n"
 	prompt += "(Everything after the | is private and visible only to you.)\n\n"
 
