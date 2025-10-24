@@ -330,11 +330,15 @@ func _construct_prompt(context: Dictionary) -> String:
 	var prompt: String = ""
 
 	# Agent identity and personality (character context)
-	prompt += "You are %s. " % context.name
+	prompt += "You are %s in %s. " % [context.name, context.location_name]
 	prompt += "%s\n\n" % context.profile
+	if context.occupants.size() > 0:
+		prompt += "Also here: %s\n" % ", ".join(context.occupants)
+	else:
+		prompt += "You are alone here.\n"
 
 	# Available command reference early for context
-	prompt += "# BASIC COMMANDS:\n"
+	prompt += "BASIC COMMANDS:\n"
 	prompt += "(Your response must start with a valid command keyword.)\n\n"
 	var command_list: Array = []
 	if owner.has_property("thinker.command_list"):
@@ -350,12 +354,9 @@ func _construct_prompt(context: Dictionary) -> String:
 			"NOTE <title> -> <content>: Save important information to your personal wiki",
 			"RECALL <query> | <reasoning>: Search your notes for relevant information",
 			"DREAM | <reasoning>: Review jumbled memories for new insights (when feeling stuck or curious)",
-			"@MY-PROFILE: View your personality profile and think interval",
-			"@MY-DESCRIPTION: View how others see you",
-			"@SET-PROFILE -> <text>: Update your personality (self-modification)",
-			"@SET-DESCRIPTION -> <text>: Update your appearance",
-			"HELP [command|category]: Get help on commands (try 'help social' or 'help say')",
-			"COMMANDS: List all available commands"
+			"HELP [command|category]: Get help on commands (try 'HELP SOCIAL' or 'HELP MEMORY')",
+			"COMMANDS: List all available commands",
+			"(Everything after the | is private and visible only to you; use this space to explain your goal, expected result, and potential follow ups.)"
 		]
 
 	for cmd in command_list:
@@ -363,18 +364,19 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "\n"
 
 	## Response format instructions
-	prompt += "## EXAMPLES\n\n"
+	prompt += "EXAMPLES\n\n"
 	prompt += "go garden | Want to explore somewhere new.\n"
 	prompt += "say Hello! How are you today?\n"
 	prompt += "emote waves enthusiastically | They look friendly, making a connection.\n"
 	prompt += "think I should wait for a bit and see what they say.\n"
-	prompt += "note Goal -> Learn the game commands.\n\n"
+	prompt += "note Goal -> I want to...\n\n"
+	prompt += "help\n\n"
 	prompt += "(Everything after the | is private and visible only to you.)\n\n"
 
 	# Contextually relevant notes from personal wiki (before transcript for context)
 	var notes_shown_in_memories: Array[String] = []  # Track notes already shown
 	if context.has("relevant_notes") and context.relevant_notes.size() > 0:
-		prompt += "# POTENTIALLY RELATED PRIVATE NOTES:\n\n"
+		prompt += "POTENTIALLY RELATED PRIVATE NOTES:\n\n"
 		for note_data in context.relevant_notes:
 			var note_dict: Dictionary = note_data as Dictionary
 			var note_title: String = note_dict.get("title", "")
@@ -386,12 +388,12 @@ func _construct_prompt(context: Dictionary) -> String:
 	# Multi-scale memory context (cascading temporal summaries)
 	# Long-term summary (oldest compressed memories)
 	if context.has("longterm_summary") and context.longterm_summary != "":
-		prompt += "## LONG TERM MEMORY SUMMARY\n\n"
+		prompt += "LONG TERM MEMORY SUMMARY\n\n"
 		prompt += "%s\n\n" % context.longterm_summary
 
 	# Recent summary (memories that aged out of immediate window)
 	if context.has("recent_summary") and context.recent_summary != "":
-		prompt += "## SHORT TERM MEMORY SUMMARY:\n\n"
+		prompt += "SHORT TERM MEMORY SUMMARY:\n\n"
 		prompt += "%s\n\n" % context.recent_summary
 
 	# Recent observations from memory - TRANSCRIPT doubles as both context and few-shot examples
@@ -428,7 +430,8 @@ func _construct_prompt(context: Dictionary) -> String:
 
 	# Command prompt line for base models (hints next token prediction to favor a command)
 	prompt += "-------------\n"
-	prompt += "# NEXT COMMAND (with optional reasoning):\n"
+	prompt += "Now that you are caught up, what do you do next? Consider what you've already done, what happened, and what you want to achieve next. Use reasoning after | to explain your goal, possible outcomes, and potential follow up based on different outcomes as a hint to your future self.\n"
+	prompt += "Your NEXT command:\n"
 	prompt += "~%s>\n" % context.name
 
 	return prompt
