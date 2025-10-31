@@ -311,9 +311,11 @@ func _construct_prompt(context: Dictionary) -> String:
 	6. Command Prompt ("> " - triggers command generation)
 
 	The transcript placement is KEY for base models: by putting it immediately
-	before the command prompt, recent commands serve as few-shot examples showing
-	the model exactly what format to use. Summaries provide historical context
-	without overwhelming the attention budget.
+	before the command prompt, recent events show the model what happens and the
+	outcomes of actions. Successful commands show only narrative results (not echoed
+	commands) to prevent pattern replication. Failed commands show full context
+	(what was attempted, why it failed, suggestions). Summaries provide historical
+	context without overwhelming the attention budget.
 
 	Args:
 		context: Dictionary from _build_context() with situation info and memory summaries
@@ -356,7 +358,7 @@ func _construct_prompt(context: Dictionary) -> String:
 			"DREAM | <reasoning>: Review jumbled memories for new insights (when feeling stuck or curious)",
 			"HELP [command|category]: Get help on commands (try 'HELP SOCIAL' or 'HELP MEMORY')",
 			"COMMANDS: List all available commands",
-			"(Everything after the | is private and visible only to you; use this space to explain your goal, expected result, and potential follow ups.)"
+			"(Text after the | is private and visible only to you; use this space to explain your goal, expected result, and potential follow ups.)"
 		]
 
 	for cmd in command_list:
@@ -396,14 +398,27 @@ func _construct_prompt(context: Dictionary) -> String:
 		prompt += "SHORT TERM MEMORY SUMMARY:\n\n"
 		prompt += "%s\n\n" % context.recent_summary
 
-	# Recent observations from memory - TRANSCRIPT doubles as both context and few-shot examples
+	# Recent observations from memory - Shows narrative results only, not command echoes
 	# This goes LAST, so that base models continue it naturally
+	# Separating commands from narrative results helps smaller models avoid echo/pattern reinforcement
 	if context.recent_memories.size() > 0:
 		prompt += "# MOST RECENT MEMORIES:\n\n"
 		for memory in context.recent_memories:
 			var mem_dict: Dictionary = memory as Dictionary
 			var content: String = mem_dict.content
-			prompt += "%s\n" % content
+			var metadata: Dictionary = mem_dict.get("metadata", {})
+			var is_failed: bool = metadata.get("is_failed", false)
+
+			# For failed commands, show the enhanced explanation (includes context of failure)
+			# For successful commands, show only the narrative result (not the command echo)
+			# This prevents the model from learning to echo previous patterns
+			if is_failed:
+				# Failed command: show the explanation (includes context of what was attempted)
+				prompt += "%s\n" % content
+			else:
+				# Successful command: show only narrative result, not the command itself
+				# The command text is in metadata["command_text"] if we need it for other purposes
+				prompt += "%s\n" % content
 
 			# Track note titles to avoid duplication
 			if content.contains("You saved a note titled"):
@@ -430,9 +445,9 @@ func _construct_prompt(context: Dictionary) -> String:
 
 	# Command prompt line for base models (hints next token prediction to favor a command)
 	prompt += "-------------\n"
-	prompt += "Now that you are caught up, what do you do next? Consider what you've already done, what happened, and what you want to achieve next. Use reasoning after | to explain your goal, possible outcomes, and potential follow up based on different outcomes as a hint to your future self.\n"
-	prompt += "Your NEXT command:\n"
-	prompt += "~%s>\n" % context.name
+	prompt += "Now that you are caught up, what do you do next? Consider what you've already done, what happened, and what you want to achieve next. Use reasoning after | to explain your goal, possible outcomes, and potential follow up based on different outcomes as a hint to your future self. Do not repeat your prior command.\n"
+	prompt += "What is your NEXT command as %s:\n" % context.name
+	prompt += ">" 
 
 	return prompt
 

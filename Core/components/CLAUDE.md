@@ -65,12 +65,40 @@ All command messages are loaded from `user://vault/text/commands/*.md` and can b
 - Generates embeddings via Shoggoth for semantic search
 - Provides `get_recent_memories()` and `search_memories()` APIs
 - Used by ThinkerComponent to build AI context
-- **Integrity Checking**: Provides application-level health monitoring
+
+**Memory Recording Strategy** (prevents echo-learning in smaller models):
+- **Successful commands**: Stores narrative result with reasoning in parentheses (e.g., "You head to the garden. (exploring new locations)")
+  - Command text and reasoning stored in metadata for future reference if needed
+  - Outcome-focused with preserved thought process, prevents models from learning to replicate patterns they see
+- **Failed commands**: Stores enhanced explanation including context:
+  - What was attempted: "You tried: examine nonexistent"
+  - Why it failed: "This failed because: You don't see that here."
+  - Helpful suggestion: "Did you mean: try 'look' to see what's available?"
+  - Teaches from failure without reinforcing bad patterns
+- **Events**: Stored as formatted narrative text (no command echoes)
+
+**Reasoning Preservation**:
+- Agent's reasoning (the `| reason` part) is shown in parentheses after the narrative result
+- This maintains the agent's thought process visible in memories without command echo
+- Helps models understand intent while avoiding pattern replication trap
+
+**Backward Compatibility**:
+- Old memory format ("> command args\nresult") automatically converted on load via `_normalize_old_memory_format()`
+- Reasoning extracted from old format and converted to new parenthetical style
+- Prevents echo-learning even from historical data
+- Seamless migration: existing agents immediately benefit from new display format
+
+**Integrity Checking**: Provides application-level health monitoring
   - `get_integrity_status()` - Lightweight check for capacity, activity, structure
   - `format_integrity_report()` - Detailed human-readable report
   - Monitors: memory count, capacity utilization, stale data detection, note count
   - Trusts OS for file integrity, focuses on application-level concerns
   - Powers `@memory-status` command and command prompt status indicator
+
+**Vault Persistence**:
+- Each memory stored as individual markdown file with frontmatter metadata
+- Metadata includes: command_text (if command), is_failed, failed_reason, location, occupants, event_type
+- Full memory history persists indefinitely; RAM cache limited by MemoryBudget daemon
 
 ### LocationComponent
 - Manages exits as dictionary (exit_name → destination_id)

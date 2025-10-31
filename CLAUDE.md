@@ -98,12 +98,17 @@ Shoggoth.generate_async(prompt_generator, profile, callback)
 **Pattern**: Universal prompt structure and API mode optimized for base models while maintaining instruct model effectiveness
 - **API Mode**: Uses `/api/generate` instead of `/api/chat` for simpler, faster single-line responses
 - **Prompt structure**: Identity → Commands → Notes → Transcript → Situation → `> ` prompt
-- **Key insight**: Transcript placement as few-shot examples - agent's own recent commands show format
+- **Key insight**: Transcript placement shows outcomes, not echoed commands - prevents pattern replication
 - **Command prompt**: `"Your next command:\n> "` guides next-token prediction toward valid command
 - **Stop token**: `["\n"]` passed to Ollama for server-side early termination
 - **Response parser**: Extracts first non-empty line (defense in depth)
 - **Universal**: No model type detection needed—works for base, instruct, and reasoning models
-**Why transcript placement matters**: Base models learn from immediate context. Putting recent commands right before the prompt shows the exact format expected, turning memories into natural few-shot examples.
+**Why transcript placement matters**: Base models learn from immediate context. Recent memories show outcomes of actions (not command echoes) to prevent models from reinforcing patterns they see. Successful commands show only narrative results; failed commands show full context (what was attempted, why it failed, suggestions).
+**Memory display strategy**:
+  - **Successful commands**: Show narrative results with reasoning in parentheses (e.g., "You head to the garden. (continuing my exploration)"), not the command echo
+  - **Failed commands**: Show enhanced explanation including attempted command, error reason, and suggestions (e.g., "You tried: examine nonexistent\nThis failed because: You don't see that here.\nDid you mean: try 'look' to see what's available?")
+  - Reasoning is preserved in narrative style to maintain the agent's thought process without command echo
+  - This prevents smaller models from echo-learning (where they learn to replicate what they see) and instead focus on prosaic outcomes
 **Why generate mode**: Single-response use cases don't need chat API overhead. Generate mode is faster and simpler for both base and instruct models.
 **Example**: `comma-v0.1-2t` (public-domain-only base model) generates valid commands consistently with this structure
 

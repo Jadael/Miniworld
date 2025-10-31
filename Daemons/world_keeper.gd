@@ -444,10 +444,9 @@ func save_world_to_vault() -> bool:
 		else:
 			print("WorldKeeper: Successfully saved %s" % obj.name)
 
-		# Save memories if character has memory component
-		if obj.has_component("memory"):
-			var memory_comp: MemoryComponent = obj.get_component("memory") as MemoryComponent #FIXME: Parser Error: Could not parse global class "MemoryComponent" from "res://Core/components/memory.gd".
-			memory_comp.save_all_memories_to_vault(obj.name)
+		# NOTE: Memories are already saved in real-time as they're added via add_memory()
+		# No need to batch-save here, as it would create duplicate timestamped files
+		# See Core/components/memory.gd:add_memory() for real-time vault persistence
 
 	# Create world state snapshot
 	_save_world_snapshot()

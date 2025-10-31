@@ -22,8 +22,20 @@
 ## for both AI agents and players.
 ##
 ## Memory Format:
-## - Command echoes: "> command args | reason\nresult"
+## - Command echoes: "> command args | reason" (stored separately in metadata)
+## - Command results: Narrative result text (success or enhanced failure explanation)
 ## - Observations: Formatted event text (no > prefix)
+##
+## Memory Display Strategy:
+## - For successful commands: Show narrative result with reasoning in parentheses (e.g., "You head to the garden. (exploring new areas)")
+## - For failed commands: Show enhanced explanation including attempt, error, and suggestions
+## - Separating commands from results helps smaller models avoid pattern replication
+## - Reasoning preserved in narrative style to maintain agent's thought process
+##
+## Backward Compatibility:
+## - Old memory format ("> command\nresult") automatically converted on load
+## - Reasoning extracted from old format and converted to new parenthetical style
+## - No command echoes shown even for historical data
 ##
 ## Memory Limits:
 ## - Uses MemoryBudget daemon for dynamic sizing based on system resources
@@ -44,6 +56,7 @@ class_name MemoryComponent
 
 ## Chronological list of memory entries
 ## Each entry is a Dictionary with: type, content, timestamp, metadata
+## For commands: metadata includes "command_text", "is_failed", "failed_reason"
 var memories: Array[Dictionary] = []
 
 ## Persistent notes indexed by title (in-memory cache)
@@ -193,7 +206,8 @@ func add_memory_from_vault(content: String, metadata: Dictionary, timestamp: int
 	"""Add a memory loaded from vault WITHOUT triggering re-save.
 
 	This is used when loading memories from disk to avoid creating
-	duplicate vault entries.
+	duplicate vault entries. Automatically normalizes old memory format
+	to prevent echo-learning from historical data.
 
 	Args:
 		content: The memory content text
@@ -202,10 +216,14 @@ func add_memory_from_vault(content: String, metadata: Dictionary, timestamp: int
 
 	Notes:
 		Does NOT save to vault. Use this only for loading existing memories.
+		Normalizes old format to new format for backward compatibility.
 	"""
+	# Normalize old memory format to new format
+	var normalized_content: String = _normalize_old_memory_format(content)
+
 	var memory = {
 		"type": "memory",
-		"content": content,
+		"content": normalized_content,
 		"timestamp": timestamp,
 		"metadata": metadata
 	}
@@ -370,7 +388,9 @@ func _on_command_executed(_cmd: String, result: Dictionary, reason: String) -> v
 		reason: Optional reasoning provided with command
 
 	Notes:
-		Records BOTH successful and failed commands so agents learn from mistakes
+		Records BOTH successful and failed commands so agents learn from mistakes.
+		For failed commands, creates enhanced explanation without command echo.
+		For successful commands, stores only the narrative result.
 	"""
 	# Get actor component to access full command string
 	if not owner.has_component("actor"):
@@ -379,19 +399,44 @@ func _on_command_executed(_cmd: String, result: Dictionary, reason: String) -> v
 	var actor_comp: ActorComponent = owner.get_component("actor") as ActorComponent
 	var full_command: String = actor_comp.last_command
 
-	# Format as MOO transcript: "> command | reason\nresult"
+	# Build command line for metadata storage (without echo in memory content)
 	var command_line: String = "> %s" % full_command
 	if reason != "":
 		command_line += " | %s" % reason
 
-	# Prefix failures with "❌" for visibility
-	var message: String = result.message
+	# Store the narrative result, enhanced for failures
+	var memory_content: String = ""
+	var metadata: Dictionary = {
+		"command_text": command_line,
+		"is_failed": not result.success,
+		"reasoning": reason,  # Store reasoning in metadata
+	}
+
 	if not result.success:
-		message = "❌ " + message
+		# Enhanced failed command messaging with attempt, error, and suggestions
+		var error_message: String = result.message
 
-	var transcript: String = "%s\n%s" % [command_line, message]
+		# Build helpful explanation of what was attempted
+		metadata["failed_reason"] = error_message
 
-	add_memory(transcript)
+		memory_content = "You tried: %s\n" % full_command
+		memory_content += "This failed because: %s\n" % error_message
+
+		# Try to provide helpful suggestions based on common failure patterns
+		var suggestion: String = _get_failure_suggestion(full_command, error_message)
+		if suggestion != "":
+			memory_content += "Did you mean: %s?" % suggestion
+		else:
+			memory_content += "\n(Try a different approach or get more information with 'help'.)"
+	else:
+		# For successful commands, show narrative result with reasoning in parentheses
+		# This avoids echoing the command itself while preserving the agent's thought process
+		memory_content = result.message
+		if reason != "":
+			# Add reasoning in narrative style within parentheses
+			memory_content += " (%s)" % reason
+
+	add_memory(memory_content, metadata)
 
 
 func _on_event_observed(event: Dictionary) -> void:
@@ -940,12 +985,24 @@ func load_memories_from_vault(owner_name: String, max_count: int = 50) -> Array[
 			continue
 
 		var parsed: Dictionary = MarkdownVault.parse_frontmatter(content)
+		var memory_content: String = parsed.body.strip_edges().replace("# Memory\n\n", "")
+
+		# Normalize old memory format (command echo + result) to new format
+		# Old format: "> command args | reason\nresult message"
+		# New format: "result message" or "result message (reason)"
+		var normalized_content: String = _normalize_old_memory_format(memory_content)
+
+		# Extract metadata from frontmatter (location, occupants, event_type, etc.)
+		var memory_metadata: Dictionary = {}
+		for key in parsed.frontmatter.keys():
+			if key not in ["type", "timestamp"]:
+				memory_metadata[key] = parsed.frontmatter[key]
 
 		loaded_memories.append({
 			"type": parsed.frontmatter.get("type", "unknown"),
-			"content": parsed.body.strip_edges().replace("# Memory\n\n", ""),
+			"content": normalized_content,
 			"timestamp": _parse_iso_timestamp(parsed.frontmatter.get("timestamp", "")),
-			"metadata": {}
+			"metadata": memory_metadata
 		})
 
 	return loaded_memories
@@ -1314,6 +1371,104 @@ func _combine_vectors(vec_a: Array, vec_b: Array, weight_a: float, weight_b: flo
 			combined[i] = float(combined[i]) / norm
 
 	return combined
+
+
+## Failure Explanation and Suggestions
+
+func _normalize_old_memory_format(memory_content: String) -> String:
+	"""Convert old memory format to new format for backward compatibility.
+
+	Old format: "> command args | reason\nresult message" or "❌ result message"
+	New format: "result message" or "result message (reason)"
+
+	Args:
+		memory_content: Raw memory content from vault
+
+	Returns:
+		Normalized memory content in new format
+
+	Notes:
+		This allows old memories to be displayed without command echoes,
+		preventing echo-learning from historical data.
+		Detects and extracts reasoning from old format when present.
+	"""
+	var lines: PackedStringArray = memory_content.split("\n")
+	if lines.size() == 0:
+		return memory_content
+
+	var first_line: String = lines[0].strip_edges()
+
+	# Check if first line is old-style command echo (starts with ">")
+	if first_line.begins_with(">"):
+		# Old format detected: extract reasoning and result
+		var reasoning: String = ""
+
+		# Extract reasoning from command line if present (after |)
+		if "|" in first_line:
+			var parts: PackedStringArray = first_line.split("|", true, 1)
+			if parts.size() == 2:
+				reasoning = parts[1].strip_edges()
+
+		# Combine remaining lines as the result
+		var result_lines: Array[String] = []
+		for i in range(1, lines.size()):
+			result_lines.append(lines[i])
+
+		var result: String = "\n".join(result_lines).strip_edges()
+
+		# Remove ❌ prefix if present (from old failed command format)
+		if result.begins_with("❌ "):
+			result = result.substr(2).strip_edges()
+
+		# Rebuild in new format
+		if reasoning != "" and not result.is_empty():
+			return "%s (%s)" % [result, reasoning]
+		else:
+			return result if not result.is_empty() else memory_content
+	else:
+		# Already in new format or plain event, return as-is
+		return memory_content
+
+
+func _get_failure_suggestion(command: String, error_message: String) -> String:
+	"""Generate helpful suggestions when a command fails.
+
+	Analyzes the error message and command to suggest common alternatives.
+
+	Args:
+		command: The full command string that failed
+		error_message: The error message returned from the command
+
+	Returns:
+		A suggested alternative command, or empty string if no suggestion available
+
+	Notes:
+		Provides common helpful suggestions for typical failure patterns:
+		- Object not found: suggest examining other nearby objects
+		- Wrong preposition: suggest trying different prep
+		- Syntax errors: suggest correct syntax
+		This helps agents learn from mistakes without reinforcing failure patterns.
+	"""
+	var suggestion: String = ""
+
+	# Common patterns and suggestions
+	if "don't see" in error_message.to_lower() or "not found" in error_message.to_lower():
+		# Object not found - suggest verifying what's available
+		var verb_match = command.split(" ")[0].to_lower()
+		if verb_match in ["examine", "look", "get", "take", "drop", "put"]:
+			suggestion = "try 'examine <something-nearby>' or 'look' to see what's available"
+		else:
+			suggestion = "try 'look' to see what's available in the current location"
+
+	elif "requires" in error_message.to_lower() or "argument" in error_message.to_lower():
+		# Missing arguments
+		suggestion = "try 'help' to see the correct syntax for this command"
+
+	elif "can't" in error_message.to_lower() or "unable" in error_message.to_lower():
+		# General inability
+		suggestion = "try a different action or use 'help' to find compatible commands"
+
+	return suggestion
 
 
 ## Memory Integrity Checks
