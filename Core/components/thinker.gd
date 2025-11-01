@@ -286,12 +286,16 @@ func _build_context() -> Dictionary:
 			occupants_typed,
 			3  # max 3 relevant notes
 		)
+
+		# Get recent reasonings to display separately from memories
+		context.recent_reasonings = memory_comp.get_recent_reasonings(5)
 	else:
 		context.recent_memories = []
 		context.recent_summary = ""
 		context.longterm_summary = ""
 		context.has_summaries = false
 		context.relevant_notes = []
+		context.recent_reasonings = []
 
 	return context
 
@@ -402,7 +406,7 @@ func _construct_prompt(context: Dictionary) -> String:
 	# This goes LAST, so that base models continue it naturally
 	# Separating commands from narrative results helps smaller models avoid echo/pattern reinforcement
 	if context.recent_memories.size() > 0:
-		prompt += "# MOST RECENT MEMORIES:\n\n"
+		prompt += "MOST RECENT MEMORIES:\n\n"
 		for memory in context.recent_memories:
 			var mem_dict: Dictionary = memory as Dictionary
 			var content: String = mem_dict.content
@@ -425,8 +429,14 @@ func _construct_prompt(context: Dictionary) -> String:
 				var parts: PackedStringArray = content.split("\"")
 				if parts.size() >= 2:
 					notes_shown_in_memories.append(parts[1])
-		prompt += "-------------\n"
 
+	# Recent reasonings - show agent's thought process separately from narrative
+	if context.has("recent_reasonings") and context.recent_reasonings.size() > 0:
+		prompt += "\nRECENT REASONING:\n\n"
+		for reasoning in context.recent_reasonings:
+			prompt += "- %s\n" % reasoning
+		prompt += "\n"
+	prompt += "-------------\n"
 	# FINAL: Current situation summary (minimal, right before command prompt)
 	prompt += "You are %s in %s. " % [context.name, context.location_name]
 	prompt += "%s\n" % context.location_description
@@ -444,7 +454,7 @@ func _construct_prompt(context: Dictionary) -> String:
 		prompt += "You are alone here.\n"
 
 	# Command prompt line for base models (hints next token prediction to favor a command)
-	prompt += "-------------\n"
+
 	prompt += "Now that you are caught up, what do you do next? Consider what you've already done, what happened, and what you want to achieve next. Use reasoning after | to explain your goal, possible outcomes, and potential follow up based on different outcomes as a hint to your future self. Do not repeat your prior command.\n"
 	prompt += "What is your NEXT command as %s:\n" % context.name
 	prompt += ">" 

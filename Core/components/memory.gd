@@ -27,14 +27,15 @@
 ## - Observations: Formatted event text (no > prefix)
 ##
 ## Memory Display Strategy:
-## - For successful commands: Show narrative result with reasoning in parentheses (e.g., "You head to the garden. (exploring new areas)")
+## - For successful commands: Show only narrative result (e.g., "You head to the garden.")
 ## - For failed commands: Show enhanced explanation including attempt, error, and suggestions
+## - Reasoning stored in metadata and displayed in separate "RECENT REASONING" section of prompt
+## - This prevents models from learning to echo reasoning in parentheses instead of using | separator
 ## - Separating commands from results helps smaller models avoid pattern replication
-## - Reasoning preserved in narrative style to maintain agent's thought process
 ##
 ## Backward Compatibility:
 ## - Old memory format ("> command\nresult") automatically converted on load
-## - Reasoning extracted from old format and converted to new parenthetical style
+## - Reasoning extracted and stored in metadata for display in RECENT REASONING section
 ## - No command echoes shown even for historical data
 ##
 ## Memory Limits:
@@ -256,6 +257,37 @@ func get_recent_memories(count: int = 64) -> Array[Dictionary]:
 	return memories.slice(start_idx, memories.size())
 
 
+func get_recent_reasonings(count: int = 5) -> Array[String]:
+	"""Extract recent command reasonings for display in prompt.
+
+	Args:
+		count: Maximum number of reasonings to retrieve
+
+	Returns:
+		Array of reasoning strings from most recent commands (oldest first, newest last)
+
+	Notes:
+		Only includes memories that have reasoning metadata (commands with | separator).
+		Filters out empty reasonings and observations that don't have reasoning.
+	"""
+	var reasonings: Array[String] = []
+
+	# Scan backwards through recent memories to find commands with reasoning
+	var scan_start: int = max(0, memories.size() - 64)  # Look at last 64 memories
+	for i in range(memories.size() - 1, scan_start - 1, -1):
+		var memory: Dictionary = memories[i]
+		var metadata: Dictionary = memory.get("metadata", {})
+		var reasoning: String = metadata.get("reasoning", "")
+
+		if reasoning != "":
+			reasonings.push_front(reasoning)  # Add to front to maintain chronological order
+
+			if reasonings.size() >= count:
+				break
+
+	return reasonings
+
+
 func get_recent_context(count: int = 20) -> Dictionary:
 	"""Get recent memories with multi-scale context summaries.
 
@@ -429,12 +461,10 @@ func _on_command_executed(_cmd: String, result: Dictionary, reason: String) -> v
 		else:
 			memory_content += "\n(Try a different approach or get more information with 'help'.)"
 	else:
-		# For successful commands, show narrative result with reasoning in parentheses
-		# This avoids echoing the command itself while preserving the agent's thought process
+		# For successful commands, show only narrative result
+		# Reasoning is stored in metadata and displayed separately in prompt
+		# This avoids models learning to echo the parenthetical pattern they see
 		memory_content = result.message
-		if reason != "":
-			# Add reasoning in narrative style within parentheses
-			memory_content += " (%s)" % reason
 
 	add_memory(memory_content, metadata)
 
@@ -1420,11 +1450,8 @@ func _normalize_old_memory_format(memory_content: String) -> String:
 		if result.begins_with("❌ "):
 			result = result.substr(2).strip_edges()
 
-		# Rebuild in new format
-		if reasoning != "" and not result.is_empty():
-			return "%s (%s)" % [result, reasoning]
-		else:
-			return result if not result.is_empty() else memory_content
+		# Return just the result (reasoning will be shown separately in prompt)
+		return result if not result.is_empty() else memory_content
 	else:
 		# Already in new format or plain event, return as-is
 		return memory_content

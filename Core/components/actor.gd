@@ -511,8 +511,23 @@ func _cmd_go(args: Array) -> Dictionary:
 		"message": arrival_msg
 	})
 
-	# Automatically look at the new location
-	return _cmd_look([])
+	# Build result message with transition + room description
+	var transition_msg: String = TextManager.get_text("commands.movement.go.transition", {
+		"origin": prior_location_name,
+		"destination": destination.name
+	})
+
+	# Get the look result for the new location
+	var look_result: Dictionary = _cmd_look([])
+
+	# Combine transition message with room description
+	var full_message: String = transition_msg + "\n\n" + look_result.message
+
+	return {
+		"success": true,
+		"message": full_message,
+		"location": destination
+	}
 
 
 func _cmd_say(args: Array) -> Dictionary:

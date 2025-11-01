@@ -67,9 +67,9 @@ All command messages are loaded from `user://vault/text/commands/*.md` and can b
 - Used by ThinkerComponent to build AI context
 
 **Memory Recording Strategy** (prevents echo-learning in smaller models):
-- **Successful commands**: Stores narrative result with reasoning in parentheses (e.g., "You head to the garden. (exploring new locations)")
-  - Command text and reasoning stored in metadata for future reference if needed
-  - Outcome-focused with preserved thought process, prevents models from learning to replicate patterns they see
+- **Successful commands**: Stores only narrative result (e.g., "You head to the garden.")
+  - Command text and reasoning stored separately in metadata
+  - Pure outcome-focused, prevents models from learning to replicate patterns they see
 - **Failed commands**: Stores enhanced explanation including context:
   - What was attempted: "You tried: examine nonexistent"
   - Why it failed: "This failed because: You don't see that here."
@@ -77,14 +77,16 @@ All command messages are loaded from `user://vault/text/commands/*.md` and can b
   - Teaches from failure without reinforcing bad patterns
 - **Events**: Stored as formatted narrative text (no command echoes)
 
-**Reasoning Preservation**:
-- Agent's reasoning (the `| reason` part) is shown in parentheses after the narrative result
-- This maintains the agent's thought process visible in memories without command echo
-- Helps models understand intent while avoiding pattern replication trap
+**Reasoning Display**:
+- Agent's reasoning (the `| reason` part) is stored in metadata
+- Displayed in separate "RECENT REASONING" section of Thinker prompt (after memories, before situation)
+- Shows last 5 reasonings as bullet list to maintain thought process visibility
+- Prevents models from learning to echo reasoning in parentheses instead of using | separator
+- `get_recent_reasonings(count)` extracts reasonings from memory metadata for display
 
 **Backward Compatibility**:
 - Old memory format ("> command args\nresult") automatically converted on load via `_normalize_old_memory_format()`
-- Reasoning extracted from old format and converted to new parenthetical style
+- Reasoning extracted from old format and stored in metadata for RECENT REASONING display
 - Prevents echo-learning even from historical data
 - Seamless migration: existing agents immediately benefit from new display format
 

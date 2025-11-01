@@ -105,10 +105,11 @@ Shoggoth.generate_async(prompt_generator, profile, callback)
 - **Universal**: No model type detection needed—works for base, instruct, and reasoning models
 **Why transcript placement matters**: Base models learn from immediate context. Recent memories show outcomes of actions (not command echoes) to prevent models from reinforcing patterns they see. Successful commands show only narrative results; failed commands show full context (what was attempted, why it failed, suggestions).
 **Memory display strategy**:
-  - **Successful commands**: Show narrative results with reasoning in parentheses (e.g., "You head to the garden. (continuing my exploration)"), not the command echo
+  - **Successful commands**: Show only narrative results (e.g., "You head to the garden."), no command echo
   - **Failed commands**: Show enhanced explanation including attempted command, error reason, and suggestions (e.g., "You tried: examine nonexistent\nThis failed because: You don't see that here.\nDid you mean: try 'look' to see what's available?")
-  - Reasoning is preserved in narrative style to maintain the agent's thought process without command echo
-  - This prevents smaller models from echo-learning (where they learn to replicate what they see) and instead focus on prosaic outcomes
+  - **Reasoning display**: Stored in metadata and shown in separate "RECENT REASONING" section after memories
+  - This prevents smaller models from learning to echo reasoning in parentheses instead of using | separator
+  - Separates narrative outcomes from internal reasoning to avoid pattern replication
 **Why generate mode**: Single-response use cases don't need chat API overhead. Generate mode is faster and simpler for both base and instruct models.
 **Example**: `comma-v0.1-2t` (public-domain-only base model) generates valid commands consistently with this structure
 
