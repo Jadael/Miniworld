@@ -219,6 +219,30 @@ const COMMANDS = {
 		"example": "@llm-config model llama3.2:3b",
 		"admin": true
 	},
+	"@narrative": {
+		"aliases": [],
+		"category": "admin",
+		"syntax": "@narrative [limit]",
+		"description": "View global narrative chronicle from silent observer perspective. Shows recent events across all locations with location tags.",
+		"example": "@narrative 100",
+		"admin": true
+	},
+	"@narrative-here": {
+		"aliases": [],
+		"category": "admin",
+		"syntax": "@narrative-here [limit]",
+		"description": "View narrative log for current location only. Silent observer perspective of events at this room.",
+		"example": "@narrative-here 50",
+		"admin": true
+	},
+	"@narrative-clear": {
+		"aliases": [],
+		"category": "admin",
+		"syntax": "@narrative-clear <all|here>",
+		"description": "Clear narrative logs. Use 'all' for entire chronicle or 'here' for current location.",
+		"example": "@narrative-clear here",
+		"admin": true
+	},
 	"@training-status": {
 		"aliases": [],
 		"category": "admin",

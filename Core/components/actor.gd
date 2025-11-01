@@ -60,6 +60,9 @@ var last_reason: String = ""
 ## Updated via _update_location() before each command execution
 var current_location: WorldObject = null
 
+## Current reasoning for the command being executed (available to command functions)
+var _current_reason: String = ""
+
 ## Flag to prevent infinite recursion in auto-correction
 var _in_autocorrect: bool = false
 
@@ -181,7 +184,10 @@ func _get_all_valid_commands() -> Array[String]:
 		"@show-config",
 		"@memory-status",
 		"@llm-status",
-		"@llm-config"
+		"@llm-config",
+		"@narrative",
+		"@narrative-here",
+		"@narrative-clear"
 	]
 
 
@@ -269,6 +275,9 @@ func execute_command(command: String, args: Array = [], reason: String = "", tas
 	"""
 	_update_location()
 
+	# Store reasoning for command functions to access
+	_current_reason = reason
+
 	var result: Dictionary = {}
 
 	# Match command string to handler functions
@@ -345,6 +354,12 @@ func execute_command(command: String, args: Array = [], reason: String = "", tas
 			result = _cmd_llm_status(args)
 		"@llm-config":
 			result = _cmd_llm_config(args)
+		"@narrative":
+			result = _cmd_narrative(args)
+		"@narrative-here":
+			result = _cmd_narrative_here(args)
+		"@narrative-clear":
+			result = _cmd_narrative_clear(args)
 		"@training-status":
 			result = _cmd_training_status(args)
 		"@training-export":
@@ -425,7 +440,8 @@ func _cmd_look(_args: Array) -> Dictionary:
 		"type": "action",
 		"actor": owner,
 		"action": "looks around",
-		"message": behavior
+		"message": behavior,
+		"reason": _current_reason
 	})
 
 	return {
@@ -491,7 +507,8 @@ func _cmd_go(args: Array) -> Dictionary:
 		"actor": owner,
 		"action": "leaves",
 		"destination": destination,
-		"message": departure_msg
+		"message": departure_msg,
+		"reason": _current_reason
 	})
 
 	# Store old location name before moving (current_location will change after move_to)
@@ -509,7 +526,8 @@ func _cmd_go(args: Array) -> Dictionary:
 		"actor": owner,
 		"action": "arrives",
 		"destination": destination,
-		"message": arrival_msg
+		"message": arrival_msg,
+		"reason": _current_reason
 	})
 
 	# Build result message with transition + room description
@@ -555,7 +573,8 @@ func _cmd_say(args: Array) -> Dictionary:
 		"type": "speech",
 		"actor": owner,
 		"message": message,
-		"text": behavior
+		"text": behavior,
+		"reason": _current_reason
 	})
 
 	return {
@@ -589,7 +608,8 @@ func _cmd_emote(args: Array) -> Dictionary:
 		"type": "emote",
 		"actor": owner,
 		"action": action,
-		"text": behavior
+		"text": behavior,
+		"reason": _current_reason
 	})
 
 	return {
@@ -2275,6 +2295,139 @@ func _cmd_llm_config(args: Array) -> Dictionary:
 
 		_:
 			return {"success": false, "message": "Unknown subcommand: %s\nTry: host, model, temperature, test" % subcommand}
+
+
+func _cmd_narrative(args: Array) -> Dictionary:
+	"""@NARRATIVE command - View global narrative chronicle.
+
+	Shows recent events across all locations from an observer perspective.
+
+	Syntax:
+		@narrative [limit]  - View recent N entries (default: 50)
+
+	Args:
+		args: Optional limit number
+
+	Returns:
+		Dictionary with success status and formatted chronicle
+
+	Notes:
+		Events displayed in chronological order with location tags.
+		Silent observer viewpoint - no "you" language.
+	"""
+	if not NarrativeLog:
+		return {"success": false, "message": "NarrativeLog daemon not available"}
+
+	var limit: int = NarrativeLog.DEFAULT_VIEW_LIMIT
+	if args.size() > 0:
+		if args[0].is_valid_int():
+			limit = args[0].to_int()
+		else:
+			return {"success": false, "message": "Usage: @narrative [limit]\nExample: @narrative 100"}
+
+	var entries: Array[String] = NarrativeLog.get_chronicle(limit)
+	if entries.is_empty():
+		return {"success": true, "message": "No narrative events recorded yet."}
+
+	var message: String = "═══ Narrative Chronicle ═══\n\n"
+	message += "Showing %d recent events across all locations:\n\n" % entries.size()
+	for entry in entries:
+		message += entry + "\n"
+
+	return {"success": true, "message": message}
+
+
+func _cmd_narrative_here(args: Array) -> Dictionary:
+	"""@NARRATIVE-HERE command - View narrative log for current location.
+
+	Shows recent events that occurred in the current room.
+
+	Syntax:
+		@narrative-here [limit]  - View recent N entries (default: 50)
+
+	Args:
+		args: Optional limit number
+
+	Returns:
+		Dictionary with success status and formatted location log
+
+	Notes:
+		Only shows events from current location.
+		Silent observer viewpoint - no "you" language.
+	"""
+	if not NarrativeLog:
+		return {"success": false, "message": "NarrativeLog daemon not available"}
+
+	_update_location()
+	if not current_location:
+		return {"success": false, "message": "You are not in a location."}
+
+	var limit: int = NarrativeLog.DEFAULT_VIEW_LIMIT
+	if args.size() > 0:
+		if args[0].is_valid_int():
+			limit = args[0].to_int()
+		else:
+			return {"success": false, "message": "Usage: @narrative-here [limit]\nExample: @narrative-here 100"}
+
+	var location_id: String = current_location.id if current_location.id else current_location.name.replace(" ", "_").to_lower()
+
+	var entries: Array[String] = NarrativeLog.get_location_log(location_id, limit)
+	if entries.is_empty():
+		return {"success": true, "message": "No narrative events recorded at this location yet."}
+
+	var location_name: String = current_location.name
+	var message: String = "═══ Narrative Log: %s ═══\n\n" % location_name
+	message += "Showing %d recent events:\n\n" % entries.size()
+	for entry in entries:
+		message += entry + "\n"
+
+	return {"success": true, "message": message}
+
+
+func _cmd_narrative_clear(args: Array) -> Dictionary:
+	"""@NARRATIVE-CLEAR command - Clear narrative logs (admin command).
+
+	Clears either all narrative logs or current location's log.
+
+	Syntax:
+		@narrative-clear all   - Clear entire chronicle
+		@narrative-clear here  - Clear current location's log
+
+	Args:
+		args: Subcommand (all or here)
+
+	Returns:
+		Dictionary with success status and message
+
+	Notes:
+		This is an admin command. Use with caution.
+	"""
+	if not NarrativeLog:
+		return {"success": false, "message": "NarrativeLog daemon not available"}
+
+	if args.size() == 0:
+		return {"success": false, "message": "Usage: @narrative-clear <all|here>\nExamples:\n  @narrative-clear all\n  @narrative-clear here"}
+
+	var subcommand: String = args[0].to_lower()
+
+	match subcommand:
+		"all":
+			NarrativeLog.clear_all()
+			return {"success": true, "message": "All narrative logs cleared."}
+
+		"here":
+			_update_location()
+			if not current_location:
+				return {"success": false, "message": "You are not in a location."}
+
+			var location_id: String = current_location.id if current_location.id else current_location.name.replace(" ", "_").to_lower()
+
+			NarrativeLog.clear_location(location_id)
+			var location_name: String = current_location.name
+			return {"success": true, "message": "Narrative log cleared for: %s" % location_name}
+
+		_:
+			return {"success": false, "message": "Unknown subcommand: %s\nUse: all or here" % subcommand}
 
 
 func _cmd_training_status(_args: Array) -> Dictionary:
