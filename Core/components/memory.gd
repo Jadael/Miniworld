@@ -16,6 +16,7 @@
 ## - Waterfall pattern: old mid-term → long-term, fresh mid-term generated
 ## - Provides historical context without overwhelming LLM attention budget
 ## - Manual compaction via @compact-memories command
+## - Summaries always use first-person perspective (I/me/my) with no meta-commentary
 ##
 ## This component automatically connects to ActorComponent signals when both
 ## are present on the same WorldObject, enabling seamless memory recording
@@ -627,14 +628,16 @@ func compact_memories_async(callback: Callable = Callable()) -> void:
 func _compact_longterm_async(callback: Callable) -> void:
 	"""Update long-term summary by combining recent + longterm summaries.
 
+	Generates first-person summary without meta-commentary.
+
 	Args:
 		callback: Called when summary generation completes
 	"""
-	# Build prompt for waterfall compaction (pure structural, no instructions)
+	# Build prompt for waterfall compaction with first-person instructions
 	var prompt: String = "# Recent Summary:\n%s\n\n" % recent_summary
 	if longterm_summary != "":
 		prompt += "# Older Summary:\n%s\n\n" % longterm_summary
-	prompt += "# Combined Summary:\n> "
+	prompt += "# Combined Summary (first-person perspective, I/me/my, no meta-commentary):\n> "
 
 	# Use generate mode with stop tokens
 	Shoggoth.generate_async(
@@ -654,6 +657,8 @@ func _compact_longterm_async(callback: Callable) -> void:
 
 func _compact_recent_async(immediate_window: int, recent_window: int, callback: Callable) -> void:
 	"""Generate recent summary from memories that aged out of immediate window.
+
+	Generates first-person summary without meta-commentary.
 
 	Args:
 		immediate_window: Number of newest memories to keep in full detail
@@ -675,11 +680,11 @@ func _compact_recent_async(immediate_window: int, recent_window: int, callback: 
 	for i in range(recent_start, recent_end):
 		memories_to_summarize.append(memories[i])
 
-	# Build prompt optimized for base models (leading structure)
+	# Build prompt optimized for base models with first-person instructions
 	var prompt: String = "# Memories:\n"
 	for memory in memories_to_summarize:
 		prompt += "%s\n" % memory.content
-	prompt += "\n# Summary:\n> "
+	prompt += "\n# Summary (first-person perspective, I/me/my, no meta-commentary):\n> "
 
 	# Use generate mode with stop tokens
 	Shoggoth.generate_async(
@@ -845,6 +850,8 @@ func bootstrap_summaries_async(callback: Callable = Callable()) -> void:
 func _bootstrap_longterm_summary_from_array(all_memories: Array[Dictionary], end_index: int, callback: Callable) -> void:
 	"""Generate initial long-term summary from oldest memories in array.
 
+	Generates first-person summary without meta-commentary.
+
 	Args:
 		all_memories: Full memory array loaded from vault
 		end_index: Index up to which to summarize (non-inclusive)
@@ -859,11 +866,11 @@ func _bootstrap_longterm_summary_from_array(all_memories: Array[Dictionary], end
 		callback.call()
 		return
 
-	# Build prompt optimized for base models (leading structure)
+	# Build prompt optimized for base models with first-person instructions
 	var prompt: String = "# Memories:\n"
 	for memory in memories_to_summarize:
 		prompt += "%s\n" % memory.content
-	prompt += "\n# Summary:\n> "
+	prompt += "\n# Summary (first-person perspective, I/me/my, no meta-commentary):\n> "
 
 	# Generate summary
 	Shoggoth.generate_async(
@@ -885,6 +892,8 @@ func _bootstrap_longterm_summary_from_array(all_memories: Array[Dictionary], end
 func _bootstrap_midterm_summary_from_array(all_memories: Array[Dictionary], immediate_window: int, recent_window: int, callback: Callable) -> void:
 	"""Generate initial mid-term summary from recent window in array.
 
+	Generates first-person summary without meta-commentary.
+
 	Args:
 		all_memories: Full memory array loaded from vault
 		immediate_window: Number of newest memories to skip (keep in full detail)
@@ -905,11 +914,11 @@ func _bootstrap_midterm_summary_from_array(all_memories: Array[Dictionary], imme
 	for i in range(recent_start, recent_end):
 		memories_to_summarize.append(all_memories[i])
 
-	# Build prompt optimized for base models (leading structure)
+	# Build prompt optimized for base models with first-person instructions
 	var prompt: String = "# Memories:\n"
 	for memory in memories_to_summarize:
 		prompt += "%s\n" % memory.content
-	prompt += "\n# Summary:\n> "
+	prompt += "\n# Summary (first-person perspective, I/me/my, no meta-commentary):\n> "
 
 	# Generate summary
 	Shoggoth.generate_async(

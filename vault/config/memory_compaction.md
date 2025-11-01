@@ -71,9 +71,21 @@ the LLM's attention budget.
 ## Base Model Compatibility
 
 Summarization prompts are optimized for base models (like comma-v0.1-2t):
-- Direct task framing: "Summarize these memories in 2-3 sentences:"
-- Examples provided inline
+- Direct task framing with clear structural guidance
+- First-person perspective explicitly specified (I/me/my)
+- No meta-commentary instructions prevent "Here is a summary..." responses
 - Stop tokens configured server-side
 - Simple, predictable format
 
 The same prompts work effectively with instruct/chat models.
+
+**Prompt Format**:
+```
+# Memories:
+[memory lines]
+
+# Summary (first-person perspective, I/me/my, no meta-commentary):
+>
+```
+
+This ensures summaries are pure narrative, not wrapped in conversational framing.
