@@ -31,6 +31,7 @@
 ##   - Compares full command: verb + args + reason
 ##   - Up to MAX_REPETITION_RETRIES attempts (default 2)
 ##   - Allows intentional repetition if LLM persists after retries
+## - Reasoning Display: Shows last 3 unique reasonings (duplicates auto-filtered to prevent pattern learning)
 
 extends ComponentBase
 class_name ThinkerComponent
@@ -288,7 +289,8 @@ func _build_context() -> Dictionary:
 		)
 
 		# Get recent reasonings to display separately from memories
-		context.recent_reasonings = memory_comp.get_recent_reasonings(5)
+		# Limit to 3 to prevent repetition; duplicates are automatically filtered
+		context.recent_reasonings = memory_comp.get_recent_reasonings(3)
 	else:
 		context.recent_memories = []
 		context.recent_summary = ""
@@ -336,6 +338,7 @@ func _construct_prompt(context: Dictionary) -> String:
 	var prompt: String = ""
 
 	# Agent identity and personality (character context)
+	prompt += "CURRENT SITUATION:\n"
 	prompt += "You are %s in %s. " % [context.name, context.location_name]
 	prompt += "%s\n\n" % context.profile
 	if context.occupants.size() > 0:
@@ -432,11 +435,12 @@ func _construct_prompt(context: Dictionary) -> String:
 
 	# Recent reasonings - show agent's thought process separately from narrative
 	if context.has("recent_reasonings") and context.recent_reasonings.size() > 0:
-		prompt += "\nRECENT REASONING:\n\n"
+		prompt += "\nPRIOR REASONING:\n\n"
 		for reasoning in context.recent_reasonings:
 			prompt += "- %s\n" % reasoning
 		prompt += "\n"
 	prompt += "-------------\n"
+	prompt += "CURRENT SITUATION:\n"
 	# FINAL: Current situation summary (minimal, right before command prompt)
 	prompt += "You are %s in %s. " % [context.name, context.location_name]
 	prompt += "%s\n" % context.location_description

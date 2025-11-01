@@ -269,8 +269,10 @@ func get_recent_reasonings(count: int = 5) -> Array[String]:
 	Notes:
 		Only includes memories that have reasoning metadata (commands with | separator).
 		Filters out empty reasonings and observations that don't have reasoning.
+		Automatically removes duplicate reasonings to prevent repetitive pattern learning.
 	"""
 	var reasonings: Array[String] = []
+	var seen_reasonings: Dictionary = {}  # Track duplicates
 
 	# Scan backwards through recent memories to find commands with reasoning
 	var scan_start: int = max(0, memories.size() - 64)  # Look at last 64 memories
@@ -280,10 +282,14 @@ func get_recent_reasonings(count: int = 5) -> Array[String]:
 		var reasoning: String = metadata.get("reasoning", "")
 
 		if reasoning != "":
-			reasonings.push_front(reasoning)  # Add to front to maintain chronological order
+			# Skip duplicate reasonings (case-insensitive comparison)
+			var reasoning_lower: String = reasoning.to_lower().strip_edges()
+			if not seen_reasonings.has(reasoning_lower):
+				seen_reasonings[reasoning_lower] = true
+				reasonings.push_front(reasoning)  # Add to front to maintain chronological order
 
-			if reasonings.size() >= count:
-				break
+				if reasonings.size() >= count:
+					break
 
 	return reasonings
 
@@ -487,6 +493,7 @@ func _on_event_observed(event: Dictionary) -> void:
 		return
 
 	var memory_content = EventWeaver.format_event(event)
+	print("[Memory] %s recording event (type=%s): %s" % [owner.name, event_type, memory_content])
 
 	if memory_content != "":
 		add_memory(memory_content, {

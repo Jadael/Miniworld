@@ -80,7 +80,9 @@ All command messages are loaded from `user://vault/text/commands/*.md` and can b
 **Reasoning Display**:
 - Agent's reasoning (the `| reason` part) is stored in metadata
 - Displayed in separate "RECENT REASONING" section of Thinker prompt (after memories, before situation)
-- Shows last 5 reasonings as bullet list to maintain thought process visibility
+- Shows last 3 unique reasonings as bullet list to maintain thought process visibility
+- Automatically filters duplicate reasonings to prevent repetitive pattern learning
+- Case-insensitive comparison ensures similar reasonings are detected as duplicates
 - Prevents models from learning to echo reasoning in parentheses instead of using | separator
 - `get_recent_reasonings(count)` extracts reasonings from memory metadata for display
 

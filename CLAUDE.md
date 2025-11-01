@@ -108,6 +108,8 @@ Shoggoth.generate_async(prompt_generator, profile, callback)
   - **Successful commands**: Show only narrative results (e.g., "You head to the garden."), no command echo
   - **Failed commands**: Show enhanced explanation including attempted command, error reason, and suggestions (e.g., "You tried: examine nonexistent\nThis failed because: You don't see that here.\nDid you mean: try 'look' to see what's available?")
   - **Reasoning display**: Stored in metadata and shown in separate "RECENT REASONING" section after memories
+  - Shows last 3 unique reasonings (duplicates auto-filtered) to prevent repetitive pattern learning
+  - Case-insensitive comparison ensures similar reasonings are detected as duplicates
   - This prevents smaller models from learning to echo reasoning in parentheses instead of using | separator
   - Separates narrative outcomes from internal reasoning to avoid pattern replication
 **Why generate mode**: Single-response use cases don't need chat API overhead. Generate mode is faster and simpler for both base and instruct models.

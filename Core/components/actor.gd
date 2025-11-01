@@ -503,6 +503,7 @@ func _cmd_go(args: Array) -> Dictionary:
 
 	# Broadcast arrival event to new location
 	var arrival_msg := TextManager.get_text("commands.movement.go.arrival", {"actor": owner.name, "origin": prior_location_name})
+	print("[Actor] Broadcasting arrival: %s to %s" % [arrival_msg, current_location.name])
 	EventWeaver.broadcast_to_location(current_location, {
 		"type": "movement",
 		"actor": owner,
@@ -958,8 +959,10 @@ func observe_event(event: Dictionary) -> void:
 	"""
 	# Don't observe our own actions (already got the command result)
 	if event.get("actor") == owner:
+		print("[Actor] %s filtering out own event: %s" % [owner.name, event.get("message", "")])
 		return
 
+	print("[Actor] %s observing event: %s" % [owner.name, event.get("message", "")])
 	# Emit event to observers (UI, Memory, AI agents, etc.)
 	event_observed.emit(event)
 
