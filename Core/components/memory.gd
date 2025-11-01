@@ -13,6 +13,7 @@
 ##   2. Mid-term summary (prior 64 memories) - paragraph summary when compacted
 ##   3. Long-term summary (all older) - progressively compacted via waterfall
 ## - Compaction triggers at 256 total memories (not aggressive cutoff)
+## - Bootstrap threshold: 96 memories (lower than compaction for earlier summarization)
 ## - Waterfall pattern: old mid-term → long-term, fresh mid-term generated
 ## - Provides historical context without overwhelming LLM attention budget
 ## - Manual compaction via @compact-memories command
@@ -643,8 +644,10 @@ func _compact_longterm_async(callback: Callable) -> void:
 	Shoggoth.generate_async(
 		prompt,
 		_get_compaction_config("profile", "summarizer"),
-		func(result: String):
-			var summary: String = result.strip_edges()
+		func(result: Variant):
+			# Handle Dictionary format from Shoggoth
+			var content: String = result.content if result is Dictionary else result
+			var summary: String = content.strip_edges()
 			if summary != "":
 				longterm_summary = summary
 				print("[Memory] %s: Long-term summary updated (%d chars)" % [
@@ -690,8 +693,10 @@ func _compact_recent_async(immediate_window: int, recent_window: int, callback: 
 	Shoggoth.generate_async(
 		prompt,
 		_get_compaction_config("profile", "summarizer"),
-		func(result: String):
-			var summary: String = result.strip_edges()
+		func(result: Variant):
+			# Handle Dictionary format from Shoggoth
+			var content: String = result.content if result is Dictionary else result
+			var summary: String = content.strip_edges()
 			if summary != "":
 				recent_summary = summary
 				print("[Memory] %s: Recent summary updated (%d chars)" % [
@@ -755,7 +760,10 @@ func _check_and_bootstrap_summaries() -> void:
 
 	var immediate_window: int = _get_compaction_config("immediate_window", 64)
 	var recent_window: int = _get_compaction_config("recent_window", 64)
-	var bootstrap_threshold: int = immediate_window + recent_window
+	# Lower threshold: bootstrap once we have enough for at least one meaningful summary
+	# Old: immediate_window + recent_window (128)
+	# New: immediate_window + (recent_window / 2) (96) - creates summaries earlier
+	var bootstrap_threshold: int = immediate_window + (recent_window / 2)
 
 	# Check vault file count, not in-RAM count (MemoryBudget may limit loaded memories)
 	var vault_count: int = get_vault_memory_count(owner.name)
@@ -876,8 +884,10 @@ func _bootstrap_longterm_summary_from_array(all_memories: Array[Dictionary], end
 	Shoggoth.generate_async(
 		prompt,
 		_get_compaction_config("profile", "summarizer"),
-		func(result: String):
-			var summary: String = result.strip_edges()
+		func(result: Variant):
+			# Handle Dictionary format from Shoggoth
+			var content: String = result.content if result is Dictionary else result
+			var summary: String = content.strip_edges()
 			if summary != "":
 				longterm_summary = summary
 				print("[Memory] %s: Long-term summary created (%d chars from %d memories)" % [
@@ -924,8 +934,10 @@ func _bootstrap_midterm_summary_from_array(all_memories: Array[Dictionary], imme
 	Shoggoth.generate_async(
 		prompt,
 		_get_compaction_config("profile", "summarizer"),
-		func(result: String):
-			var summary: String = result.strip_edges()
+		func(result: Variant):
+			# Handle Dictionary format from Shoggoth
+			var content: String = result.content if result is Dictionary else result
+			var summary: String = content.strip_edges()
 			if summary != "":
 				recent_summary = summary
 				print("[Memory] %s: Mid-term summary created (%d chars from %d memories)" % [

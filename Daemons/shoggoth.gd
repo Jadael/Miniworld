@@ -16,6 +16,13 @@ extends Node
 ## 3. Handling HTTP communication with Ollama API (localhost:11434)
 ## 4. Managing configuration (model selection, host, temperature, etc.)
 ## 5. Emitting signals to inform other entities about the status of AI operations
+## 6. Auto-detecting reasoning models and enabling chain-of-thought output
+##
+## Reasoning Model Support:
+## - Automatically detects reasoning models (qwen3, deepseek-r1, etc.) by name pattern
+## - Enables think: true option for reasoning models to extract chain-of-thought
+## - Thinking content passed to callbacks in result Dictionary
+## - ThinkerComponent logs thinking but doesn't store as memory (it's meta/implementation detail)
 ##
 ## Current Backend: Ollama API via ollama_client.gd
 ## Default Model: gemma3:27b
@@ -249,11 +256,13 @@ func _run_initialization_test() -> void:
 	print("[Shoggoth] → Sending test request to Ollama...")
 	# Run init test directly without queuing to avoid circular dependency
 	# Include stop token to verify server-side early termination is working
+	# Disable thinking for simple connectivity test (we just need a response)
 	var stop_tokens = config.get_value("ollama", "stop_tokens", ["\n"])
 	ollama_client.generate(INIT_TEST_PROMPT, {
 		"num_predict": 32,
 		"temperature": 0.0,
-		"stop": stop_tokens
+		"stop": stop_tokens,
+		"think": false  # Disable chain-of-thought for simple connectivity test
 	})
 
 func _on_init_test_completed(result: String) -> void:
@@ -261,6 +270,7 @@ func _on_init_test_completed(result: String) -> void:
 
 	Args:
 		result: The text response from the LLM (expected to be a single-line greeting)
+			For reasoning models, this may come from either 'response' or 'thinking' field
 
 	Notes:
 		Tests both LLM connectivity and stop token behavior. Considers initialization
@@ -269,6 +279,9 @@ func _on_init_test_completed(result: String) -> void:
 		Emits models_initialized signal to notify other systems. If tasks were
 		queued during initialization, begins processing them now.
 		Emits initialization_status for UI visibility.
+
+		For reasoning models: Explicitly disables think:true during init test for
+		simplicity, but falls back to accepting thinking content if response is empty.
 	"""
 	var llm_success = result.strip_edges() != ""
 
@@ -530,12 +543,50 @@ func _apply_task_parameters() -> Dictionary:
 				# Pass through other options to Ollama
 				options[key] = parameters[key]
 
+	# Auto-enable reasoning for reasoning models (qwen3, deepseek-r1, etc.)
+	# This extracts chain-of-thought thinking alongside the final answer
+	var model_name: String = ollama_client.model if ollama_client else ""
+	if _is_reasoning_model(model_name):
+		options["think"] = true
+		print("[Shoggoth] → Enabled chain-of-thought reasoning for model: %s" % model_name)
+
 	#Chronicler.log_event(self, "task_parameters_applied", {
 	#	"task_id": current_task["id"],
 	#	"options": options
 	#})
 
 	return options
+
+func _is_reasoning_model(model_name: String) -> bool:
+	"""Detect if the model supports chain-of-thought reasoning.
+
+	Args:
+		model_name: The Ollama model name (e.g., "qwen3:8b", "deepseek-r1:7b")
+
+	Returns:
+		True if the model is a reasoning model that benefits from think: true
+
+	Notes:
+		Reasoning models generate internal thinking/reasoning before providing
+		the final answer. This includes models like:
+		- qwen3 (Qwen 2.5+ with thinking capabilities)
+		- deepseek-r1 (DeepSeek's reasoning-optimized models)
+		- Other models explicitly designed for chain-of-thought
+	"""
+	var model_lower: String = model_name.to_lower()
+
+	# Known reasoning model patterns
+	var reasoning_patterns: Array[String] = [
+		"qwen3",          # Qwen 3.x models support reasoning
+		"deepseek-r1",    # DeepSeek R1 reasoning models
+		"deepseek-reasoner"  # Alternative DeepSeek naming
+	]
+
+	for pattern in reasoning_patterns:
+		if pattern in model_lower:
+			return true
+
+	return false
 
 func _execute_current_task(options: Dictionary) -> void:
 	"""Execute the current task by calling the appropriate Ollama client method.
@@ -713,7 +764,9 @@ func _on_generate_text_finished(result: Dictionary) -> void:
 	if is_initializing:
 		print("[Shoggoth] → Routing to initialization handler")
 		content = _process_result(content)
-		_on_init_test_completed(content)
+		# For reasoning models, accept thinking as valid response if content is empty
+		var init_result: String = content if content != "" else thinking
+		_on_init_test_completed(init_result)
 		return
 
 	# Normal task completion
@@ -791,13 +844,12 @@ func _emit_task_completion(result: String, thinking: String = "") -> void:
 		var callback: Callable = pending_callbacks[task_id]
 		pending_callbacks.erase(task_id)
 
-		# Pass thinking content if available (for reasoning models)
-		# Most callbacks only expect result, but we can pass thinking as optional 2nd param
-		# The callback can choose to use it or ignore it
-		if thinking != "":
-			callback.call(result, thinking)
-		else:
-			callback.call(result)
+		# Pass result as Dictionary with both content and thinking
+		# This works around GDScript Callable limitations with optional parameters
+		callback.call({
+			"content": result,
+			"thinking": thinking
+		})
 
 	# Emit signal for other listeners (signal still uses String for backward compat)
 	task_completed.emit(task_id, result)
@@ -859,7 +911,9 @@ func generate_async(prompt: Variant, system_prompt: String, callback: Callable) 
 				If a Callable is provided, it will be invoked just-in-time when
 				Shoggoth is ready to execute the task, ensuring maximum freshness.
 		system_prompt: System instruction defining personality or behavior
-		callback: A Callable that will be invoked with the result string
+		callback: A Callable(result: Variant) that receives a Dictionary:
+			- content: String - The final answer/output from the model
+			- thinking: String - Chain-of-thought reasoning (empty for non-reasoning models)
 
 	Returns:
 		The task ID, or empty string if LLM is unavailable
@@ -868,14 +922,18 @@ func generate_async(prompt: Variant, system_prompt: String, callback: Callable) 
 		Uses /api/generate mode for simpler, faster single-line responses. The system
 		prompt is combined with the user prompt into a single string. The callback is
 		stored in pending_callbacks and invoked by Shoggoth when the task completes.
-		If LLM is unavailable, the callback is immediately called with an empty string.
+		If LLM is unavailable, the callback is immediately called with an empty Dictionary.
 
 		Passing a Callable for prompt is useful for AI agents that need the most
 		up-to-date memories and observations when their task finally executes.
+
+		Callback receives a Dictionary (not String) to support reasoning models.
+		For backward compatibility with legacy String callbacks, use:
+		`var content: String = result.content if result is Dictionary else result`
 	"""
 	if ollama_client == null:
-		# No LLM available, call callback with empty string
-		callback.call("")
+		# No LLM available, call callback with empty Dictionary
+		callback.call({"content": "", "thinking": ""})
 		return ""
 
 	# Store prompt as-is (String or Callable) - it will be resolved just-in-time

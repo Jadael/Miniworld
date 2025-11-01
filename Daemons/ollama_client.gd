@@ -8,8 +8,15 @@
 ## - Managing HTTP requests to Ollama server
 ## - Serializing request payloads to JSON
 ## - Parsing JSON responses and extracting generated text
+## - Extracting chain-of-thought reasoning from reasoning models (qwen3, deepseek-r1, etc.)
 ## - Emitting signals for success/failure cases
 ## - Handling request cancellation
+##
+## Reasoning Model Support:
+## - Automatically extracts both 'response' and 'thinking' fields from LLM output
+## - Works with both /api/generate and /api/chat endpoints
+## - 'thinking' contains chain-of-thought reasoning (empty for non-reasoning models)
+## - 'response' contains the final answer/output
 ##
 ## This is a lower-level daemon used by Shoggoth. Most code should interact
 ## with Shoggoth instead of calling OllamaClient directly.
@@ -345,6 +352,12 @@ func _on_generate_completed(data: Dictionary) -> void:
 	# Check for /api/generate response format
 	if data.has("response"):
 		response_content = data.response
+
+		# Extract thinking/reasoning content if present (for reasoning models)
+		if data.has("thinking"):
+			thinking_content = data.thinking
+			print("[OllamaClient] Extracted thinking content from /api/generate (length: %d)" % thinking_content.length())
+
 		print("[OllamaClient] Extracted response from /api/generate format")
 
 	# Check for /api/chat response format

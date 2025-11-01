@@ -781,8 +781,10 @@ func _cmd_dream(_args: Array) -> Dictionary:
 	# Request LLM analysis asynchronously
 	print("Dream: %s entering dream state..." % owner.name)
 	Shoggoth.generate_async(prompt, "You are an insightful analyst helping someone process their memories.",
-		func(response: String):
-			_on_dream_complete(response)
+		func(result: Variant):
+			# Handle Dictionary format from Shoggoth
+			var content: String = result.content if result is Dictionary else result
+			_on_dream_complete(content)
 	)
 
 	return {

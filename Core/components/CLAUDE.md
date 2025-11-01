@@ -59,6 +59,11 @@ All command messages are loaded from `user://vault/text/commands/*.md` and can b
 - Executes decided commands through ActorComponent
 - Broadcasts observable thinking behavior ("pauses, deep in thought...") just-in-time when prompt generation begins
 - Broadcasting happens at the last moment so agent sees all events until they "zone out"
+- **Reasoning Model Support**: Automatically receives chain-of-thought from reasoning models (qwen3, deepseek-r1)
+  - CoT thinking is logged for debugging/transparency but NOT stored as memory
+  - Rationale: CoT is implementation detail (how model thinks), not in-character narrative
+  - Different models produce different reasoning, would clutter memory with meta information
+  - Agent's actual reasoning (after | separator) is still captured in memories
 
 ### MemoryComponent
 - Records observations as timestamped entries

@@ -12,6 +12,14 @@
 ## - Long-term summary: Progressively compacted summary of all older memories
 ## - Provides agents with historical context beyond immediate window
 ##
+## Anti-Repetition Features:
+## - Memory deduplication: Collapses consecutive identical memories in prompt display
+## - Explicit prior command: Shows last command with reasoning before "Next command:" prompt
+##   (formatted exactly as they should write: single line with | separator)
+## - Reasoning deduplication: Skips most recent reasoning in PRIOR REASONING section
+##   (since it's shown in the prior command echo)
+## - Exact repetition detection: Retries if agent generates same command+args+reason
+##
 ## Dependencies:
 ## - ComponentBase: Base class for all components
 ## - Shoggoth: AI/LLM interface daemon for inference
@@ -31,7 +39,8 @@
 ##   - Compares full command: verb + args + reason
 ##   - Up to MAX_REPETITION_RETRIES attempts (default 2)
 ##   - Allows intentional repetition if LLM persists after retries
-## - Reasoning Display: Shows last 3 unique reasonings (duplicates auto-filtered to prevent pattern learning)
+## - Reasoning Display: Shows last 3 unique reasonings (most recent shown in prior command echo,
+##   then 2-3 earlier reasonings in PRIOR REASONING section; duplicates auto-filtered to prevent pattern learning)
 
 extends ComponentBase
 class_name ThinkerComponent
@@ -289,8 +298,9 @@ func _build_context() -> Dictionary:
 		)
 
 		# Get recent reasonings to display separately from memories
-		# Limit to 3 to prevent repetition; duplicates are automatically filtered
-		context.recent_reasonings = memory_comp.get_recent_reasonings(3)
+		# Request 4 (one extra) since we'll skip the most recent if shown in prior command
+		# Duplicates are automatically filtered
+		context.recent_reasonings = memory_comp.get_recent_reasonings(4)
 	else:
 		context.recent_memories = []
 		context.recent_summary = ""
@@ -408,9 +418,15 @@ func _construct_prompt(context: Dictionary) -> String:
 	# Recent observations from memory - Shows narrative results only, not command echoes
 	# This goes LAST, so that base models continue it naturally
 	# Separating commands from narrative results helps smaller models avoid echo/pattern reinforcement
+	# Memory deduplication: Collapse consecutive identical memories to prevent pattern reinforcement
 	if context.recent_memories.size() > 0:
 		prompt += "MOST RECENT MEMORIES:\n\n"
-		for memory in context.recent_memories:
+
+		var last_content: String = ""
+		var repeat_count: int = 0
+
+		for i in range(context.recent_memories.size()):
+			var memory: Dictionary = context.recent_memories[i]
 			var mem_dict: Dictionary = memory as Dictionary
 			var content: String = mem_dict.content
 			var metadata: Dictionary = mem_dict.get("metadata", {})
@@ -419,13 +435,22 @@ func _construct_prompt(context: Dictionary) -> String:
 			# For failed commands, show the enhanced explanation (includes context of failure)
 			# For successful commands, show only the narrative result (not the command echo)
 			# This prevents the model from learning to echo previous patterns
-			if is_failed:
-				# Failed command: show the explanation (includes context of what was attempted)
-				prompt += "%s\n" % content
+			var display_content: String = content
+
+			# Check for consecutive repetition
+			if content == last_content and not is_failed:
+				repeat_count += 1
+				# Skip displaying - will show count at end
+				continue
 			else:
-				# Successful command: show only narrative result, not the command itself
-				# The command text is in metadata["command_text"] if we need it for other purposes
-				prompt += "%s\n" % content
+				# Display any pending repetition summary
+				if repeat_count > 0:
+					prompt += " (repeated %dx more)\n" % repeat_count
+					repeat_count = 0
+
+				# Display current memory
+				prompt += "%s\n" % display_content
+				last_content = content
 
 			# Track note titles to avoid duplication
 			if content.contains("You saved a note titled"):
@@ -433,12 +458,33 @@ func _construct_prompt(context: Dictionary) -> String:
 				if parts.size() >= 2:
 					notes_shown_in_memories.append(parts[1])
 
+		# Handle any trailing repetition
+		if repeat_count > 0:
+			prompt += " (repeated %dx more)\n" % repeat_count
+
 	# Recent reasonings - show agent's thought process separately from narrative
+	# Skip the most recent one if it's being shown in the "prior command" echo below
 	if context.has("recent_reasonings") and context.recent_reasonings.size() > 0:
-		prompt += "\nPRIOR REASONING:\n\n"
-		for reasoning in context.recent_reasonings:
-			prompt += "- %s\n" % reasoning
-		prompt += "\n"
+		var reasonings_to_show: Array[String] = []
+
+		# Check if we'll be showing the most recent reasoning in the prior command
+		var will_show_in_prior: bool = false
+		if owner and owner.has_component("actor"):
+			var actor_comp: ActorComponent = owner.get_component("actor") as ActorComponent
+			if actor_comp and actor_comp.last_reason != "":
+				will_show_in_prior = true
+
+		# If showing in prior command, skip the first reasoning (most recent)
+		var start_idx: int = 1 if will_show_in_prior else 0
+		for i in range(start_idx, context.recent_reasonings.size()):
+			reasonings_to_show.append(context.recent_reasonings[i])
+
+		# Only show section if we have reasonings to display
+		if reasonings_to_show.size() > 0:
+			prompt += "\nPRIOR REASONING:\n\n"
+			for reasoning in reasonings_to_show:
+				prompt += "- %s\n" % reasoning
+			prompt += "\n"
 	prompt += "-------------\n"
 	prompt += "CURRENT SITUATION:\n"
 	# FINAL: Current situation summary (minimal, right before command prompt)
@@ -458,14 +504,26 @@ func _construct_prompt(context: Dictionary) -> String:
 		prompt += "You are alone here.\n"
 
 	# Command prompt line for base models (hints next token prediction to favor a command)
+	# Show prior command explicitly to reinforce "do not repeat" instruction
 
-	prompt += "Now that you are caught up, what do you do next? Consider what you've already done, what happened, and what you want to achieve next. Use reasoning after | to explain your goal, possible outcomes, and potential follow up based on different outcomes as a hint to your future self. Do not repeat your prior command.\n"
-	prompt += "What is your NEXT command as %s:\n" % context.name
-	prompt += ">" 
+	prompt += "Now that you are caught up, what do you do next? Consider what you've already done, what happened, and what you want to achieve next. Use reasoning after | to explain your goal, possible outcomes, and potential follow up based on different outcomes as a hint to your future self. Do not repeat your prior command.\n\n"
+
+	# Display last command if available (helps models avoid repetition)
+	# Format: single line with reasoning after | (exactly as they should write it)
+	if owner and owner.has_component("actor"):
+		var actor_comp: ActorComponent = owner.get_component("actor") as ActorComponent
+		if actor_comp and actor_comp.last_command != "":
+			var prior_cmd: String = actor_comp.last_command
+			if actor_comp.last_reason != "":
+				prior_cmd += " | %s" % actor_comp.last_reason
+			prompt += "PRIOR command and reasoning:\n>%s\n\n" % prior_cmd
+
+	prompt += "NEXT command and reasoning as %s:\n" % context.name
+	prompt += ">"
 
 	return prompt
 
-func _on_thought_complete(response: String, thinking: String = "") -> void:
+func _on_thought_complete(result: Variant) -> void:
 	"""Handle LLM response and execute the decided action.
 
 	Parses the LLM response using LambdaMOO-compatible parser:
@@ -473,9 +531,10 @@ func _on_thought_complete(response: String, thinking: String = "") -> void:
 	- Supports prepositions: put bird in cage
 	- Extracts reasoning: command | reason
 
-	For reasoning models (like deepseek-r1), the thinking parameter contains
-	the chain-of-thought reasoning process, which is stored in memory as a
-	private "THINK" event (like command reasoning after |).
+	For reasoning models (like qwen3, deepseek-r1), the result Dictionary contains both
+	content (the command) and thinking (chain-of-thought reasoning). The thinking
+	content is logged but NOT stored as a memory, since it's implementation detail
+	that varies between models/prompts, not in-character thought.
 
 	Anti-Repetition Logic:
 	If the agent generates EXACTLY the same command (verb + args + reason) as
@@ -484,8 +543,9 @@ func _on_thought_complete(response: String, thinking: String = "") -> void:
 	(e.g., if LLM deliberately repeats after max retries, it's allowed).
 
 	Args:
-		response: The LLM's text response containing decision
-		thinking: Optional chain-of-thought reasoning from reasoning models
+		result: Either a String (legacy) or Dictionary with:
+			- content: String - The command to execute
+			- thinking: String - Optional chain-of-thought reasoning from reasoning models
 
 	Notes:
 		Resets is_thinking flag to allow next think cycle.
@@ -496,11 +556,24 @@ func _on_thought_complete(response: String, thinking: String = "") -> void:
 	"""
 	is_thinking = false
 
-	# Store chain-of-thought reasoning in memory if present
-	if thinking != "" and owner.has_component("memory"):
-		var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
-		memory_comp.add_memory("[THINK] %s" % thinking)
-		print("[Thinker] %s recorded %d chars of chain-of-thought reasoning" % [owner.name, thinking.length()])
+	# Handle both legacy String format and new Dictionary format
+	var response: String = ""
+	var thinking: String = ""
+
+	if result is Dictionary:
+		response = result.get("content", "")
+		thinking = result.get("thinking", "")
+		# Note: Chain-of-thought reasoning is not stored as a memory
+		# It's implementation detail (how the model arrived at the decision),
+		# not in-character thought. Different models/prompts produce different reasoning,
+		# so storing it would clutter narrative history with meta information.
+		if thinking != "":
+			print("[Thinker] %s generated %d chars of CoT reasoning (not stored as memory)" % [owner.name, thinking.length()])
+	elif result is String:
+		response = result
+	else:
+		push_error("[Thinker] Invalid result type: %s" % typeof(result))
+		return
 
 	# Extract first non-empty line from response (in case LLM adds extra text)
 	var command_line: String = response.strip_edges()
