@@ -1239,8 +1239,9 @@ func get_relevant_notes_for_context(location_name: String, occupants: Array[Stri
 	"""Find notes relevant to the current context (location, occupants, recent activity).
 
 	Uses simple keyword matching to find notes that mention:
-	- Current location name
+	- Current location name (split into individual words for better matching)
 	- Names of other actors present
+	- Falls back to most recent note if few contextual matches
 
 	This is optimized for Thinker prompts - cheap, instant, and contextual.
 
@@ -1251,24 +1252,31 @@ func get_relevant_notes_for_context(location_name: String, occupants: Array[Stri
 
 	Returns:
 		Array of Dictionaries with keys: title (String), content (String)
-		Sorted by relevance (most relevant first)
+		Sorted by relevance (most relevant first), with recent notes as fallback
 
 	Notes:
-		Returns empty array if no notes exist or no matches found.
+		Returns empty array if no notes exist.
 		Performs case-insensitive matching.
+		Splits location names into words for partial matching (e.g., "The Garden" matches "garden").
+		Includes most recent note as fallback when few contextual matches found.
 	"""
 	if notes.size() == 0:
 		return []
 
-	# Build search terms from context
+	# Build search terms from context (split location names into words)
 	var search_terms: Array[String] = []
 	if location_name != "" and location_name != "nowhere":
-		search_terms.append(location_name.to_lower())
+		# Split location name into individual words for better partial matching
+		# This allows "The Garden" to match notes titled just "garden"
+		var location_words: PackedStringArray = location_name.to_lower().split(" ")
+		for word in location_words:
+			var cleaned_word: String = word.strip_edges()
+			# Skip common articles and short words that don't add meaning
+			if cleaned_word.length() > 2 and not cleaned_word in ["the", "and", "for"]:
+				search_terms.append(cleaned_word)
+
 	for occupant in occupants:
 		search_terms.append(occupant.to_lower())
-
-	if search_terms.size() == 0:
-		return []
 
 	# Score each note by relevance
 	var scored_notes: Array[Dictionary] = []
@@ -1277,35 +1285,76 @@ func get_relevant_notes_for_context(location_name: String, occupants: Array[Stri
 		var title_lower: String = title.to_lower()
 		var content_lower: String = note_data.content.to_lower()
 		var combined_text: String = title_lower + " " + content_lower
+		var created_time: int = note_data.get("created", 0)
 
 		var score: int = 0
-		for term in search_terms:
-			# Count occurrences of each search term
-			var pos: int = 0
-			while true:
-				pos = combined_text.find(term, pos)
-				if pos == -1:
-					break
-				score += 1
-				pos += term.length()
 
-		if score > 0:
-			scored_notes.append({
-				"title": title,
-				"content": note_data.content,
-				"score": score
-			})
+		# If we have search terms, use keyword matching
+		if search_terms.size() > 0:
+			for term in search_terms:
+				# Count occurrences of each search term
+				var pos: int = 0
+				while true:
+					pos = combined_text.find(term, pos)
+					if pos == -1:
+						break
+					score += 1
+					pos += term.length()
 
-	# Sort by score (highest first)
-	scored_notes.sort_custom(func(a, b): return a.score > b.score)
-
-	# Return top N results
-	var results: Array[Dictionary] = []
-	for i in range(min(max_notes, scored_notes.size())):
-		results.append({
-			"title": scored_notes[i].title,
-			"content": scored_notes[i].content
+		# Add to scored notes with both relevance score and creation time
+		scored_notes.append({
+			"title": title,
+			"content": note_data.content,
+			"score": score,
+			"created": created_time
 		})
+
+	# Sort by score (highest first), then by creation time (most recent first) as tiebreaker
+	scored_notes.sort_custom(func(a, b):
+		if a.score != b.score:
+			return a.score > b.score
+		else:
+			return a.created > b.created
+	)
+
+	# Collect results, ensuring we include at least one recent note if available
+	var results: Array[Dictionary] = []
+	var contextual_matches: int = 0
+
+	# First, add notes with contextual relevance (score > 0)
+	for note_entry in scored_notes:
+		if note_entry.score > 0 and results.size() < max_notes:
+			results.append({
+				"title": note_entry.title,
+				"content": note_entry.content
+			})
+			contextual_matches += 1
+
+	# If we have fewer than max_notes and didn't get strong contextual matches,
+	# add the most recent note as fallback (if not already included)
+	if results.size() < max_notes and contextual_matches < 2:
+		# Find most recent note not already in results
+		var most_recent_note: Dictionary = {}
+		var most_recent_time: int = 0
+		for note_entry in scored_notes:
+			if note_entry.created > most_recent_time:
+				# Check if already in results
+				var already_included: bool = false
+				for existing in results:
+					if existing.title == note_entry.title:
+						already_included = true
+						break
+
+				if not already_included:
+					most_recent_note = note_entry
+					most_recent_time = note_entry.created
+
+		# Add most recent note if found
+		if most_recent_note.size() > 0:
+			results.append({
+				"title": most_recent_note.title,
+				"content": most_recent_note.content
+			})
 
 	return results
 
