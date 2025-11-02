@@ -376,14 +376,11 @@ func _construct_prompt(context: Dictionary) -> String:
 		command_list = [
 			"GO <exit> | <reasoning>: Move to another location",
 			"SAY <message> | <reasoning>: Speak to others",
-			"EMOTE <action> | <reasoning>: Perform an action",
-			"EXAMINE <target> | <reasoning>: Look at something/someone closely",
-			"THINK <reasoning>: Reason privately without taking action",
+			"THINK <reasoning>: Pass your 'turn', reason privately without taking action",
 			"NOTE <title> -> <content>: Save important information to your personal wiki",
 			"RECALL <query> | <reasoning>: Search your notes for relevant information",
 			"DREAM | <reasoning>: Review jumbled memories for new insights (when feeling stuck or curious)",
 			"HELP [command|category]: Get help on commands (try 'HELP SOCIAL' or 'HELP MEMORY')",
-			"COMMANDS: List all available commands",
 			"(Text after the | is private and visible only to you; use this space to explain your goal, expected result, and potential follow ups.)"
 		]
 
@@ -391,15 +388,15 @@ func _construct_prompt(context: Dictionary) -> String:
 		prompt += "- %s\n" % cmd
 	prompt += "\n"
 
-	## Response format instructions
-	prompt += "EXAMPLES\n\n"
-	prompt += "go garden | Want to explore somewhere new.\n"
-	prompt += "say Hello! How are you today?\n"
-	prompt += "emote waves enthusiastically | They look friendly, making a connection.\n"
-	prompt += "think I should wait for a bit and see what they say.\n"
-	prompt += "note Goal -> I want to...\n\n"
-	prompt += "help\n\n"
-	prompt += "(Everything after the | is private and visible only to you.)\n\n"
+	# Response format instructions
+	#prompt += "EXAMPLES\n\n"
+	#prompt += "go garden | Want to explore somewhere new.\n"
+	#prompt += "say Hello! How are you today?\n"
+	#prompt += "emote waves enthusiastically | They look friendly, making a connection.\n"
+	#prompt += "think I should wait for a bit and see what they say.\n"
+	#prompt += "note Goal -> I want to...\n\n"
+	#prompt += "help\n\n"
+	#prompt += "(Everything after the | is private and visible only to you.)\n\n"
 
 	# Contextually relevant notes from personal wiki (before transcript for context)
 	var notes_shown_in_memories: Array[String] = []  # Track notes already shown

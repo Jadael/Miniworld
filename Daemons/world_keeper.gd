@@ -258,22 +258,24 @@ func get_object(obj_id: String) -> WorldObject:
 	return objects.get(obj_id, null)
 
 
-func find_object_by_name(search_name: String, location: WorldObject = null) -> WorldObject:
+func find_object_by_name(search_name: String, location: WorldObject = null, global_fallback: bool = true) -> WorldObject:
 	"""Find an object by name, optionally restricted to a location.
 
 	Performs a two-stage search:
 	1. If location is provided, searches within that location first
-	2. Falls back to global search across all objects
+	2. Falls back to global search (if global_fallback is true)
 
 	Args:
 		search_name: The name or alias to search for
 		location: Optional location to restrict the search to
+		global_fallback: If false, only searches in the specified location (default: true)
 
 	Returns:
 		The first WorldObject matching the name, or null if not found
 
 	Notes:
 		Uses WorldObject.matches_name() which checks both name and aliases
+		Set global_fallback=false to strictly enforce location-only search
 	"""
 	# If location specified, search there first
 	if location != null:
@@ -281,11 +283,12 @@ func find_object_by_name(search_name: String, location: WorldObject = null) -> W
 			if obj.matches_name(search_name):
 				return obj
 
-	# Global search if not found locally
-	for obj_id in objects:
-		var obj: WorldObject = objects[obj_id]
-		if obj.matches_name(search_name):
-			return obj
+	# Global search if not found locally (and fallback is enabled)
+	if global_fallback:
+		for obj_id in objects:
+			var obj: WorldObject = objects[obj_id]
+			if obj.matches_name(search_name):
+				return obj
 
 	return null
 

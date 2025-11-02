@@ -666,8 +666,8 @@ func _cmd_examine(args: Array) -> Dictionary:
 	# Join all args to support multi-word object names like "The Traveler"
 	var target_name: String = " ".join(args)
 
-	# Search for target in current location
-	var target: WorldObject = WorldKeeper.find_object_by_name(target_name, current_location)
+	# Search for target in current location only (no global fallback)
+	var target: WorldObject = WorldKeeper.find_object_by_name(target_name, current_location, false)
 
 	if target == null:
 		return {"success": false, "message": TextManager.get_text("commands.social.examine.not_found", {"target": target_name})}
