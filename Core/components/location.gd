@@ -173,19 +173,19 @@ func enhance_description(base_description: String) -> String:
 		base_description: The location's base description
 
 	Returns:
-		Enhanced description with exit list appended
+		Enhanced description with exit list appended inline
 	"""
 	var desc = base_description
 
-	# Add exit information
+	# Add exit information inline
 	if exits.size() > 0:
-		desc += "\n\nObvious exits: "
+		desc += " Exits: "
 		var exit_names: Array[String] = []
 		for exit_name in exits.keys():
 			exit_names.append(exit_name)
-		desc += ", ".join(exit_names)
+		desc += ", ".join(exit_names) + "."
 	else:
-		desc += "\n\nThere are no obvious exits."
+		desc += " No obvious exits."
 
 	return desc
 
@@ -194,19 +194,22 @@ func get_contents_description() -> String:
 	"""Generate a description of objects in this location.
 
 	Returns:
-		Formatted text listing all objects in the location
+		Formatted text listing all objects in the location inline
 	"""
 	var contents = owner.get_contents()
 
 	if contents.size() == 0:
-		return "The area is empty."
+		return ""  # Don't add anything if room is empty
 
-	var desc = "You see:\n"
+	var names: Array[String] = []
 	for obj in contents:
 		if obj != owner:  # Don't list the room itself
-			desc += "  - %s\n" % obj.name
+			names.append(obj.name)
 
-	return desc
+	if names.size() == 0:
+		return ""
+
+	return " Occupants: " + ", ".join(names) + "."
 
 
 ## Markdown Vault Persistence

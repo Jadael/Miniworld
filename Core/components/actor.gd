@@ -421,18 +421,24 @@ func _cmd_look(_args: Array) -> Dictionary:
 	Returns:
 		Dictionary with:
 		- success (bool): Always true unless actor has no location
-		- message (String): Formatted description of location and contents
+		- message (String): Formatted description of location and contents (compact, single-line format)
 		- location (WorldObject): The location object being observed
 	"""
 	if current_location == null:
 		return {"success": false, "message": TextManager.get_text("commands.social.look.no_location")}
 
-	var desc: String = current_location.get_description()
+	# Start with room name
+	var desc: String = current_location.name + ": "
 
-	# Add contents listing from location component
+	# Add room description (includes exits from enhance_description)
+	desc += current_location.get_description()
+
+	# Add contents listing inline from location component
 	var location_comp = current_location.get_component("location")
 	if location_comp != null:
-		desc += "\n\n" + location_comp.get_contents_description()
+		var contents_desc = location_comp.get_contents_description()
+		if not contents_desc.is_empty():
+			desc += contents_desc
 
 	# Notify other actors in location
 	var behavior := TextManager.get_text("behaviors.actions.look", {"actor": owner.name})
