@@ -400,7 +400,7 @@ func _construct_prompt(context: Dictionary) -> String:
 			var note_dict: Dictionary = note_data as Dictionary
 			var note_title: String = note_dict.get("title", "")
 			var note_content: String = note_dict.get("content", "")
-			prompt += "**%s**\n%s\n\n" % [note_title, note_content]
+			prompt += "- %s: %s\n" % [note_title, note_content]
 			notes_shown_in_memories.append(note_title)
 		prompt += "\n"
 

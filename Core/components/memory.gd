@@ -9,12 +9,15 @@
 ## Memory Compaction (Progressive Summarization):
 ## - Uses cascading temporal summaries (Anthropic context engineering pattern)
 ## - Three-tier system:
-##   1. Immediate window (64 memories) - full detail, used as few-shot examples
-##   2. Mid-term summary (prior 64 memories) - paragraph summary when compacted
-##   3. Long-term summary (all older) - progressively compacted via waterfall
-## - Compaction triggers at 256 total memories (not aggressive cutoff)
-## - Bootstrap threshold: 96 memories (lower than compaction for earlier summarization)
-## - Waterfall pattern: old mid-term → long-term, fresh mid-term generated
+##   1. Immediate window (0-64 from end) - most recent 64 in full detail
+##   2. Short-term summary (65-128 from end) - middle 64 summarized
+##   3. Long-term summary (129+ from end) - everything older progressively squashed
+## - Compaction triggers at 129 memories (immediate + recent windows), then every ~64 memories
+## - Creates short-term summary when memories fall from immediate view
+## - Updates long-term summary after each short-term update (progressive squashing)
+## - Waterfall pattern: old short-term → long-term, fresh short-term generated
+## - Summaries persisted to vault (user://agents/{name}/summaries/)
+## - Historical short-term summaries saved with timestamps for future analysis
 ## - Provides historical context without overwhelming LLM attention budget
 ## - Manual compaction via @compact-memories command
 ## - Summaries always use first-person perspective (I/me/my) with no meta-commentary
@@ -79,6 +82,8 @@ var recent_summary: String = ""
 var longterm_summary: String = ""
 ## Last compaction timestamp (for tracking when summaries were generated)
 var last_compaction_time: int = 0
+## Last compaction memory count (to avoid re-compacting too frequently)
+var _last_compaction_memory_count: int = 0
 ## Bootstrap flag to prevent duplicate initialization
 var _bootstrap_attempted: bool = false
 
@@ -98,6 +103,9 @@ func _on_added(obj: WorldObject) -> void:
 
 	# Load notes from vault
 	load_notes_from_vault(obj.name)
+
+	# Load summaries from vault (restores summaries from previous sessions)
+	load_summaries_from_vault(obj.name)
 
 	# Connect to actor events for automatic memory recording
 	if obj.has_component("actor"):
@@ -604,14 +612,19 @@ func compact_memories_async(callback: Callable = Callable()) -> void:
 		recent_window
 	])
 
-	# Step 1: Update long-term summary (combine recent + longterm)
-	# Only if we have a recent summary to waterfall
+	# Step 1: Update long-term summary (waterfall recent into longterm)
+	# Always do this if we have a recent summary to waterfall
+	# This ensures long-term summary traces back to earliest memories
 	if recent_summary != "":
 		_compact_longterm_async(func():
 			# Step 2: Generate new recent summary from aged-out memories
 			_compact_recent_async(immediate_window, recent_window, func():
 				last_compaction_time = int(Time.get_unix_time_from_system())
-				print("[Memory] %s: Compaction complete" % (owner.name if owner else "unknown"))
+				_last_compaction_memory_count = memories.size()
+				# Save summaries to vault for persistence
+				if owner:
+					save_summaries_to_vault(owner.name)
+				print("[Memory] %s: Compaction complete (waterfall)" % (owner.name if owner else "unknown"))
 				if callback.is_valid():
 					callback.call()
 			)
@@ -620,7 +633,11 @@ func compact_memories_async(callback: Callable = Callable()) -> void:
 		# First compaction: just create recent summary
 		_compact_recent_async(immediate_window, recent_window, func():
 			last_compaction_time = int(Time.get_unix_time_from_system())
-			print("[Memory] %s: Compaction complete (first run)" % (owner.name if owner else "unknown"))
+			_last_compaction_memory_count = memories.size()
+			# Save summaries to vault for persistence
+			if owner:
+				save_summaries_to_vault(owner.name)
+			print("[Memory] %s: Compaction complete (first summary)" % (owner.name if owner else "unknown"))
 			if callback.is_valid():
 				callback.call()
 		)
@@ -711,17 +728,30 @@ func should_compact() -> bool:
 	"""Check if memories should be compacted based on threshold.
 
 	Returns:
-		True if compaction should run (memories exceed threshold)
+		True if compaction should run
 
 	Notes:
-		Compacts when memories exceed configurable threshold (default: 256).
-		This threshold should be significantly larger than immediate + recent windows
-		to prevent overly aggressive compaction. Compaction is progressive:
-		old mid-term → long-term, then fresh mid-term generated from aged-out memories.
-	"""
-	var compaction_threshold: int = _get_compaction_config("compaction_threshold", 256)
+		Compaction triggers when:
+		1. First time: memories > (immediate_window + recent_window), e.g., 129 memories
+		2. Subsequent: we've accumulated another recent_window (64) memories since last compaction
 
-	return memories.size() > compaction_threshold
+		This prevents re-summarizing on every single new memory. Instead, summaries
+		regenerate roughly once per recent_window (64 memories), maintaining clean chunks:
+		- Immediate (0-64 from end): most recent 64 in full detail
+		- Short-term (65-128 from end): middle 64 summarized
+		- Long-term (129+ from end): everything older progressively squashed
+	"""
+	var immediate_window: int = _get_compaction_config("immediate_window", 64)
+	var recent_window: int = _get_compaction_config("recent_window", 64)
+
+	# First compaction: need enough memories to fill immediate + recent windows
+	var first_threshold: int = immediate_window + recent_window
+	if _last_compaction_memory_count == 0:
+		return memories.size() > first_threshold
+
+	# Subsequent compactions: only when we've accumulated another recent_window of memories
+	var memories_since_last_compaction: int = memories.size() - _last_compaction_memory_count
+	return memories_since_last_compaction >= recent_window
 
 
 func _check_and_bootstrap_summaries() -> void:
@@ -760,10 +790,8 @@ func _check_and_bootstrap_summaries() -> void:
 
 	var immediate_window: int = _get_compaction_config("immediate_window", 64)
 	var recent_window: int = _get_compaction_config("recent_window", 64)
-	# Lower threshold: bootstrap once we have enough for at least one meaningful summary
-	# Old: immediate_window + recent_window (128)
-	# New: immediate_window + (recent_window / 2) (96) - creates summaries earlier
-	var bootstrap_threshold: int = immediate_window + (recent_window / 2)
+	# Bootstrap threshold matches compaction threshold: need enough for both windows
+	var bootstrap_threshold: int = immediate_window + recent_window
 
 	# Check vault file count, not in-RAM count (MemoryBudget may limit loaded memories)
 	var vault_count: int = get_vault_memory_count(owner.name)
@@ -840,6 +868,9 @@ func bootstrap_summaries_async(callback: Callable = Callable()) -> void:
 			# Step 2: Generate mid-term summary from recent window
 			_bootstrap_midterm_summary_from_array(all_memories, immediate_window, recent_window, func():
 				last_compaction_time = int(Time.get_unix_time_from_system())
+				_last_compaction_memory_count = all_memories.size()
+				# Save summaries to vault for persistence
+				save_summaries_to_vault(owner.name)
 				print("[Memory] %s: Bootstrap complete" % owner.name)
 				if callback.is_valid():
 					callback.call()
@@ -849,6 +880,9 @@ func bootstrap_summaries_async(callback: Callable = Callable()) -> void:
 		# No long-term memories, just generate mid-term
 		_bootstrap_midterm_summary_from_array(all_memories, immediate_window, recent_window, func():
 			last_compaction_time = int(Time.get_unix_time_from_system())
+			_last_compaction_memory_count = all_memories.size()
+			# Save summaries to vault for persistence
+			save_summaries_to_vault(owner.name)
 			print("[Memory] %s: Bootstrap complete (mid-term only)" % owner.name)
 			if callback.is_valid():
 				callback.call()
@@ -950,6 +984,86 @@ func _bootstrap_midterm_summary_from_array(all_memories: Array[Dictionary], imme
 
 
 ## Markdown Vault Persistence
+
+func save_summaries_to_vault(owner_name: String) -> void:
+	"""Save memory summaries to vault for persistence.
+
+	Args:
+		owner_name: Name of the agent (for directory path)
+
+	Notes:
+		Saves recent_summary and longterm_summary as separate markdown files.
+		Called after each compaction to ensure summaries persist across restarts.
+
+		Short-term summaries are saved with timestamps (recent-YYYYMMDD-HHMMSS.md)
+		AND as recent.md (for quick loading). This preserves historical short-term
+		summaries for potential future analysis while keeping loading simple.
+
+		Long-term summary is cumulative, so only current version saved (longterm.md).
+	"""
+	var agent_path: String = MarkdownVault.AGENTS_PATH + "/" + MarkdownVault.sanitize_filename(owner_name)
+	var summaries_path: String = agent_path + "/summaries"
+
+	# Save recent summary (both timestamped version and current)
+	if recent_summary != "":
+		var recent_frontmatter: Dictionary = {
+			"type": "memory_summary",
+			"summary_type": "recent",
+			"updated": MarkdownVault.get_timestamp(),
+			"memory_count": memories.size()
+		}
+		var recent_content: String = MarkdownVault.create_frontmatter(recent_frontmatter)
+		recent_content += "# Recent Memory Summary\n\n"
+		recent_content += recent_summary + "\n"
+
+		# Save current version (for loading)
+		MarkdownVault.write_file(summaries_path + "/recent.md", recent_content)
+
+		# Save timestamped version (for historical analysis)
+		var timestamp_filename: String = "recent-%s.md" % MarkdownVault.get_filename_timestamp()
+		MarkdownVault.write_file(summaries_path + "/" + timestamp_filename, recent_content)
+
+	# Save long-term summary (cumulative, so just current version)
+	if longterm_summary != "":
+		var longterm_frontmatter: Dictionary = {
+			"type": "memory_summary",
+			"summary_type": "longterm",
+			"updated": MarkdownVault.get_timestamp(),
+			"memory_count": memories.size()
+		}
+		var longterm_content: String = MarkdownVault.create_frontmatter(longterm_frontmatter)
+		longterm_content += "# Long-term Memory Summary\n\n"
+		longterm_content += longterm_summary + "\n"
+		MarkdownVault.write_file(summaries_path + "/longterm.md", longterm_content)
+
+
+func load_summaries_from_vault(owner_name: String) -> void:
+	"""Load memory summaries from vault on initialization.
+
+	Args:
+		owner_name: Name of the agent (for directory path)
+
+	Notes:
+		Loads recent_summary and longterm_summary from vault if they exist.
+		Called during _on_added() to restore summaries from previous sessions.
+	"""
+	var agent_path: String = MarkdownVault.AGENTS_PATH + "/" + MarkdownVault.sanitize_filename(owner_name)
+	var summaries_path: String = agent_path + "/summaries"
+
+	# Load recent summary
+	var recent_file: String = MarkdownVault.read_file(summaries_path + "/recent.md")
+	if not recent_file.is_empty():
+		var parsed: Dictionary = MarkdownVault.parse_frontmatter(recent_file)
+		recent_summary = parsed.body.strip_edges().replace("# Recent Memory Summary\n\n", "")
+		print("[Memory] %s: Loaded recent summary (%d chars)" % [owner_name, recent_summary.length()])
+
+	# Load long-term summary
+	var longterm_file: String = MarkdownVault.read_file(summaries_path + "/longterm.md")
+	if not longterm_file.is_empty():
+		var parsed: Dictionary = MarkdownVault.parse_frontmatter(longterm_file)
+		longterm_summary = parsed.body.strip_edges().replace("# Long-term Memory Summary\n\n", "")
+		print("[Memory] %s: Loaded longterm summary (%d chars)" % [owner_name, longterm_summary.length()])
+
 
 func save_memory_to_vault(owner_name: String, memory_text: String, metadata: Dictionary) -> void:
 	"""Save a memory as a markdown file in the agent's vault.

@@ -14,52 +14,70 @@ We've implemented cascading temporal summaries for AI agent memory, based on Ant
    - Acts as few-shot examples for base models
    - Provides rich context for decision-making
 
-2. **Mid-term Summary** (default: prior 64 memories)
+2. **Short-term Summary** (65-128 from end)
    - LLM-generated 2-3 sentence summary
    - Covers memories that aged out of immediate window
    - Provides mid-range historical context
-   - Generated when compaction threshold exceeded
+   - Generated at 129 memories, then every ~64 memories thereafter
+   - Updates in clean chunks (not on every single memory)
+   - Historical versions saved with timestamps for future analysis
 
 3. **Long-term Summary** (all older memories)
    - Progressively compacted summary
-   - Waterfalls older mid-term summaries together
+   - Waterfalls older short-term summaries together
    - Preserves distant historical patterns
+   - Traces back to earliest memories (never loses history)
+   - Persisted to vault (user://agents/{name}/summaries/)
 
 ### Waterfall Pattern
 
-Every compaction cycle:
+Every compaction cycle (triggered at 129 memories, then every ~64 thereafter):
 
 ```
-1. Long-term summary ← LLM(mid-term_summary + longterm_summary)
-2. Mid-term summary ← LLM(memories outside immediate window)
+1. Long-term summary ← LLM(short_term_summary + longterm_summary)
+2. Short-term summary ← LLM(memories outside immediate window)
 3. Immediate context ← 64 newest memories (unchanged)
+4. Save both summaries to vault for persistence
+5. Save timestamped copy of short-term summary for historical analysis
 ```
 
 This creates a cascading effect where:
 - Recent details stay crisp (64 memories in full)
 - Mid-range context gets summarized (next 64 memories → paragraph)
-- Distant history gets progressively compressed
-- Compaction only triggers at 256+ total memories (prevents aggressive cutoff)
+- Distant history gets progressively compressed (waterfall squashing)
+- Compaction triggers at 129 memories (immediate + recent windows filled)
+- Then every ~64 new memories (not on every single memory)
+- Long-term summary traces back to earliest memories (never loses history)
+- Summaries persist across restarts (vault storage)
+- Historical short-term summaries preserved with timestamps
 
 ## Configuration
 
 All settings in `vault/config/memory_compaction.md`:
 
-- `immediate_window`: 64 - Memories in full detail
-- `recent_window`: 64 - Memories to summarize into mid-term summary
-- `compaction_threshold`: 256 - Total memories before triggering compaction
+- `immediate_window`: 64 - Most recent memories in full detail
+- `recent_window`: 64 - Size of short-term summary window
 - `profile`: "summarizer" - LLM profile for summaries
 
 ## Usage
 
 ### Automatic Compaction
 
-Runs automatically when memories exceed threshold:
+Runs automatically at 129 memories, then every ~64 memories thereafter:
 ```
-compaction_threshold = 256 (default)
+First compaction:  immediate_window + recent_window = 128 + 1 = 129 memories
+Next compactions:  every recent_window (64) new memories
 ```
 
-When an agent accumulates more than 256 memories, compaction triggers asynchronously. This prevents overly aggressive context reduction while still providing progressive summarization for long-running agents.
+When an agent reaches 129 memories, compaction triggers asynchronously:
+1. Waterfalls old short-term summary into long-term (progressive squashing)
+2. Generates new short-term summary from memories outside immediate window
+3. Saves both summaries to vault for persistence
+4. Saves timestamped copy of short-term summary for historical analysis
+
+Then repeats every ~64 new memories (193, 257, 321...).
+
+This ensures agents get summarization in clean chunks without regenerating summaries on every single new memory, while maintaining long-term summaries that trace back to their earliest memories.
 
 ### Manual Compaction
 
@@ -152,26 +170,39 @@ This structure:
 
 To test the system:
 
-1. Create an agent with 40+ memories (or lower threshold in config)
-2. Watch for compaction logs:
+1. Create an agent and have them accumulate 129+ memories (immediate + recent windows)
+2. Watch for first compaction logs:
    ```
-   [Memory] AgentName: Starting compaction (260 memories, 64 immediate, 64 recent)
-   [Memory] AgentName: Recent summary updated (127 chars)
-   [Memory] AgentName: Long-term summary updated (215 chars)
-   [Memory] AgentName: Compaction complete
+   [Memory] AgentName: Starting compaction (129 memories, 64 immediate, 64 recent)
+   [Memory] AgentName: Short-term summary updated (127 chars)
+   [Memory] AgentName: Compaction complete (first summary)
    ```
 
-3. Use `@memory-status` to verify summaries exist
-4. Use `@compact-memories` to manually trigger
+3. Continue adding memories (to 193+) to see waterfall compaction:
+   ```
+   [Memory] AgentName: Starting compaction (193 memories, 64 immediate, 64 recent)
+   [Memory] AgentName: Long-term summary updated (215 chars)
+   [Memory] AgentName: Short-term summary updated (134 chars)
+   [Memory] AgentName: Compaction complete (waterfall)
+   ```
+
+4. Use `@memory-status` to verify summaries exist
+5. Check vault folder for timestamped short-term summaries (recent-YYYYMMDD-HHMMSS.md)
+6. Restart the agent to verify summaries load from vault
+7. Use `@compact-memories` to manually trigger
 
 ## Benefits
 
 1. **Attention Budget**: Summaries are token-efficient vs. full memories
 2. **Historical Context**: Agents remember distant events via summaries
 3. **Progressive Disclosure**: Most recent = most detail, older = compressed
-4. **Base Model Support**: Works with comma-v0.1-2t and other base models
-5. **Universal**: Effective for instruct/chat models too
-6. **Automatic**: Runs in background, no manual intervention needed
+4. **Clean Chunks**: Summaries regenerate every ~64 memories (not per-memory)
+5. **Progressive Squashing**: Long-term summary traces back to earliest memories
+6. **Persistence**: Summaries survive restarts via vault storage
+7. **Historical Record**: Timestamped short-term summaries preserved for future features
+8. **Base Model Support**: Works with comma-v0.1-2t and other base models
+9. **Universal**: Effective for instruct/chat models too
+10. **Automatic**: Runs in background, no manual intervention needed
 
 ## Future Enhancements
 

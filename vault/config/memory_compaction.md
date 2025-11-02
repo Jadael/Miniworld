@@ -15,17 +15,19 @@ Based on Anthropic's context engineering best practices, this system maintains:
 _Number of most recent memories to keep in full detail_
 
 **recent_window**: 64
-_Number of memories before immediate window to summarize (creates mid-term summary)_
-
-**compaction_threshold**: 256
-_Total memories before triggering compaction (should be much larger than immediate + recent windows)_
+_Number of memories before immediate window to summarize (creates short-term summary)_
 
 **Notes**:
 - Immediate memories (64) appear in full in agent prompts - provides rich context
-- Recent window (64) gets summarized into mid-term summary when threshold exceeded
-- Compaction is progressive: mid-term summary → long-term summary → recent → mid-term
-- Default threshold (256) means compaction only triggers with substantial memory buildup
-- This prevents overly aggressive context reduction
+- Compaction triggers at 129 memories (immediate + recent windows filled)
+- Then compaction runs again every ~64 new memories (recent_window size)
+- When compaction runs:
+  1. Old short-term summary waterfalls into long-term (progressive squashing)
+  2. New short-term summary generated from memories outside immediate window
+- This ensures long-term summary traces back to earliest memories
+- Short-term summary updates every ~64 memories (not on every single memory)
+- Long-term summary grows progressively with each short-term update
+- Historical short-term summaries saved with timestamps for future analysis
 
 ---
 
@@ -44,9 +46,11 @@ _LLM profile name used for generating summaries_
 
 ## Usage
 
-**Automatic**: Compaction runs automatically when memories exceed threshold
+**Automatic**: Compaction runs automatically at 129 memories, then every ~64 memories thereafter
 **Manual**: Use `@compact-memories` command to force compaction
-**Status**: Use `@memory-status` to see summary stats
+**Status**: Use `@memory-status` to see summary stats and integrity report
+**Persistence**: Summaries automatically saved to vault after each compaction
+**Historical**: Short-term summaries saved with timestamps (recent-YYYYMMDD-HHMMSS.md)
 
 ---
 
@@ -54,17 +58,23 @@ _LLM profile name used for generating summaries_
 
 This implements the "waterfall" pattern from Anthropic's context engineering article:
 
-1. **Long-term summary** ← LLM(recent_summary + longterm_summary)
-2. **Recent summary** ← LLM(memories outside immediate window)
+1. **Long-term summary** ← LLM(short_term_summary + longterm_summary)
+2. **Short-term summary** ← LLM(memories outside immediate window)
 3. **Immediate context** ← N newest memories (unchanged)
 
-Each compaction cycle:
-- Waterfalls the recent summary into long-term
-- Generates new recent summary from aged-out memories
-- Preserves most recent memories in full detail
+Each compaction cycle (triggered at 129 memories, then every ~64 thereafter):
+- Waterfalls old short-term summary into long-term (progressive squashing)
+- Generates new short-term summary from memories outside immediate window
+- Preserves most recent memories (immediate window) in full detail
+- Saves both summaries to vault for persistence
+- Saves timestamped copy of short-term summary for historical analysis
 
-This provides agents with multi-scale temporal context without overwhelming
-the LLM's attention budget.
+This ensures:
+- Long-term summary traces back to earliest memories (never loses history)
+- Short-term summary updates every ~64 memories (clean chunks, not per-memory)
+- Agents maintain multi-scale temporal context without overwhelming LLM attention
+- Summaries persist across restarts (vault storage)
+- Historical record of short-term summaries preserved for future features
 
 ---
 
