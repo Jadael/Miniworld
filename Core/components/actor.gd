@@ -583,9 +583,20 @@ func _cmd_say(args: Array) -> Dictionary:
 		"reason": _current_reason
 	})
 
+	# Check if anyone else is in the room to hear it
+	var success_msg := TextManager.get_text("commands.social.say.success", {"text": message})
+	if current_location:
+		var has_audience := false
+		for obj in current_location.get_contents():
+			if obj != owner and obj.has_component("actor"):
+				has_audience = true
+				break
+		if not has_audience:
+			success_msg += TextManager.get_text("commands.social.say.empty_room")
+
 	return {
 		"success": true,
-		"message": TextManager.get_text("commands.social.say.success", {"text": message})
+		"message": success_msg
 	}
 
 
@@ -617,6 +628,16 @@ func _cmd_emote(args: Array) -> Dictionary:
 		"text": behavior,
 		"reason": _current_reason
 	})
+
+	# Check if anyone else is in the room to see it
+	if current_location:
+		var has_audience := false
+		for obj in current_location.get_contents():
+			if obj != owner and obj.has_component("actor"):
+				has_audience = true
+				break
+		if not has_audience:
+			behavior += TextManager.get_text("commands.social.emote.empty_room")
 
 	return {
 		"success": true,
