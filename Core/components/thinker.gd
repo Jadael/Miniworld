@@ -297,6 +297,14 @@ func _build_context() -> Dictionary:
 			3  # max 3 relevant notes
 		)
 
+		# Get relevant memory summaries (experiential history from RAG)
+		context.relevant_summaries = memory_comp.get_relevant_summaries_for_context(
+			context.location_name,
+			occupants_typed,
+			"",  # no recent_events context for now
+			2  # max 2 relevant summaries
+		)
+
 		# Get recent reasonings to display separately from memories
 		# Request 4 (one extra) since we'll skip the most recent if shown in prior command
 		# Duplicates are automatically filtered
@@ -307,6 +315,7 @@ func _build_context() -> Dictionary:
 		context.longterm_summary = ""
 		context.has_summaries = false
 		context.relevant_notes = []
+		context.relevant_summaries = []
 		context.recent_reasonings = []
 
 	return context
@@ -402,6 +411,16 @@ func _construct_prompt(context: Dictionary) -> String:
 			var note_content: String = note_dict.get("content", "")
 			prompt += "- %s: %s\n" % [note_title, note_content]
 			notes_shown_in_memories.append(note_title)
+		prompt += "\n"
+
+	# Relevant memory summaries from RAG (experiential context)
+	if context.has("relevant_summaries") and context.relevant_summaries.size() > 0:
+		prompt += "RELATED PAST EXPERIENCES:\n\n"
+		for summary_data in context.relevant_summaries:
+			var summary_dict: Dictionary = summary_data as Dictionary
+			var summary_text: String = summary_dict.get("summary_text", "")
+			var memory_range: String = summary_dict.get("memory_range", "")
+			prompt += "- %s (%s)\n" % [summary_text, memory_range]
 		prompt += "\n"
 
 	# Multi-scale memory context (cascading temporal summaries)

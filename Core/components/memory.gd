@@ -22,6 +22,14 @@
 ## - Manual compaction via @compact-memories command
 ## - Summaries always use first-person perspective (I/me/my) with no meta-commentary
 ##
+## RAG Integration (Retrieval-Augmented Generation):
+## - Short-term summaries embedded and stored in VectorStore alongside notes
+## - Agents can retrieve relevant past experiences via semantic search
+## - get_relevant_summaries_for_context() finds summaries related to current situation
+## - Thinker prompt includes "RELATED PAST EXPERIENCES" section with relevant summaries
+## - This provides experiential context beyond the immediate memory window
+## - Complements notes (explicit knowledge) with summaries (experiential history)
+##
 ## This component automatically connects to ActorComponent signals when both
 ## are present on the same WorldObject, enabling seamless memory recording
 ## for both AI agents and players.
@@ -679,6 +687,7 @@ func _compact_recent_async(immediate_window: int, recent_window: int, callback: 
 	"""Generate recent summary from memories that aged out of immediate window.
 
 	Generates first-person summary without meta-commentary.
+	Also generates embeddings and stores summary in VectorStore for RAG.
 
 	Args:
 		immediate_window: Number of newest memories to keep in full detail
@@ -720,7 +729,64 @@ func _compact_recent_async(immediate_window: int, recent_window: int, callback: 
 					owner.name if owner else "unknown",
 					recent_summary.length()
 				])
-			callback.call()
+
+				# Generate embeddings for this summary and store in VectorStore
+				_embed_summary_async(summary, recent_start, recent_end, func():
+					# Continue after embedding completes
+					callback.call()
+				)
+			else:
+				callback.call()
+	)
+
+
+func _embed_summary_async(summary: String, memory_start: int, memory_end: int, callback: Callable) -> void:
+	"""Generate embeddings for a summary and store in VectorStore.
+
+	Args:
+		summary: The summary text to embed
+		memory_start: Starting index of memories this summary covers
+		memory_end: Ending index of memories this summary covers
+		callback: Called when embedding completes
+
+	Notes:
+		Stores summary with ID format "summary-{timestamp}" in VectorStore.
+		This allows summaries to be retrieved alongside notes via semantic search.
+	"""
+	if not Shoggoth or not Shoggoth.ollama_client:
+		callback.call()
+		return
+
+	# Generate embeddings for the summary
+	Shoggoth.generate_embeddings_async(summary, func(embeddings: Array):
+		if embeddings.size() > 0:
+			var summary_vec: Array = embeddings[0]
+
+			# Create unique ID for this summary
+			var summary_id: String = "summary-%s" % MarkdownVault.get_filename_timestamp()
+
+			# Store in VectorStore with metadata
+			vector_store.upsert_vector(
+				summary_id,
+				summary_vec,  # title_vector
+				summary_vec,  # content_vector
+				summary_vec,  # combined_vector (all same for summaries)
+				{
+					"type": "memory_summary",
+					"timestamp": MarkdownVault.get_timestamp(),
+					"memory_range_start": memory_start,
+					"memory_range_end": memory_end,
+					"memory_count": memory_end - memory_start,
+					"summary_text": summary
+				}
+			)
+
+			print("[Memory] %s: Summary embedded and stored (id=%s)" % [
+				owner.name if owner else "unknown",
+				summary_id
+			])
+
+		callback.call()
 	)
 
 
@@ -979,7 +1045,14 @@ func _bootstrap_midterm_summary_from_array(all_memories: Array[Dictionary], imme
 					recent_summary.length(),
 					memories_to_summarize.size()
 				])
-			callback.call()
+
+				# Generate embeddings for this summary and store in VectorStore
+				_embed_summary_async(summary, recent_start, recent_end, func():
+					# Continue after embedding completes
+					callback.call()
+				)
+			else:
+				callback.call()
 	)
 
 
@@ -1469,6 +1542,130 @@ func get_relevant_notes_for_context(location_name: String, occupants: Array[Stri
 				"title": most_recent_note.title,
 				"content": most_recent_note.content
 			})
+
+	return results
+
+
+func get_relevant_summaries_for_context(location_name: String, occupants: Array[String], recent_events: String = "", max_summaries: int = 2) -> Array[Dictionary]:
+	"""Find summaries relevant to the current context using keyword matching.
+
+	Uses keyword matching (similar to notes) to find summaries that mention
+	current location, occupants, or events. This provides agents with relevant
+	experiential history beyond the immediate window.
+
+	Args:
+		location_name: Name of current location
+		occupants: Array of actor names in the location
+		recent_events: Optional string describing recent events/context
+		max_summaries: Maximum number of relevant summaries to return (default 2)
+
+	Returns:
+		Array of Dictionaries with keys:
+		- summary_text (String): The summary content
+		- timestamp (String): When summary was created
+		- memory_range (String): e.g., "memories 65-128"
+		Sorted by relevance (most relevant first), then recency
+
+	Notes:
+		Returns empty array if no summaries exist.
+		Uses keyword matching for synchronous execution (like get_relevant_notes_for_context).
+		Splits location names into words for better partial matching.
+	"""
+	# Build search terms from context (split location names into words)
+	var search_terms: Array[String] = []
+	if location_name != "" and location_name != "nowhere":
+		# Split location name into individual words for better partial matching
+		var location_words: PackedStringArray = location_name.to_lower().split(" ")
+		for word in location_words:
+			var cleaned_word: String = word.strip_edges()
+			# Skip common articles and short words that don't add meaning
+			if cleaned_word.length() > 2 and not cleaned_word in ["the", "and", "for"]:
+				search_terms.append(cleaned_word)
+
+	for occupant in occupants:
+		search_terms.append(occupant.to_lower())
+
+	if recent_events != "":
+		# Add words from recent events
+		var event_words: PackedStringArray = recent_events.to_lower().split(" ")
+		for word in event_words:
+			var cleaned_word: String = word.strip_edges()
+			if cleaned_word.length() > 3:  # Only longer words from events
+				search_terms.append(cleaned_word)
+
+	# Get all summary vectors from VectorStore
+	var scored_summaries: Array[Dictionary] = []
+	for vector_id in vector_store.vectors.keys():
+		if vector_id.begins_with("summary-"):
+			var entry: Dictionary = vector_store.vectors[vector_id]
+			var metadata: Dictionary = entry.get("metadata", {})
+			if metadata.get("type") == "memory_summary":
+				var summary_text: String = metadata.get("summary_text", "")
+				var summary_lower: String = summary_text.to_lower()
+
+				var score: int = 0
+
+				# Score by keyword matches if we have search terms
+				if search_terms.size() > 0:
+					for term in search_terms:
+						# Count occurrences of each search term
+						var pos: int = 0
+						while true:
+							pos = summary_lower.find(term, pos)
+							if pos == -1:
+								break
+							score += 1
+							pos += term.length()
+
+				var memory_start: int = metadata.get("memory_range_start", 0)
+				var memory_end: int = metadata.get("memory_range_end", 0)
+
+				scored_summaries.append({
+					"summary_text": summary_text,
+					"timestamp": metadata.get("timestamp", ""),
+					"memory_range": "memories %d-%d" % [memory_start, memory_end],
+					"score": score,
+					"timestamp_sort": metadata.get("timestamp", "")
+				})
+
+	# If no summaries, return empty
+	if scored_summaries.size() == 0:
+		return []
+
+	# Sort by score (highest first), then by timestamp (most recent first) as tiebreaker
+	scored_summaries.sort_custom(func(a, b):
+		if a.score != b.score:
+			return a.score > b.score
+		else:
+			return a.timestamp_sort > b.timestamp_sort
+	)
+
+	# Collect results - include at least one recent summary as fallback
+	var results: Array[Dictionary] = []
+	var contextual_matches: int = 0
+
+	# First, add summaries with contextual relevance (score > 0)
+	for summary_entry in scored_summaries:
+		if summary_entry.score > 0 and results.size() < max_summaries:
+			results.append({
+				"summary_text": summary_entry.summary_text,
+				"timestamp": summary_entry.timestamp,
+				"memory_range": summary_entry.memory_range
+			})
+			contextual_matches += 1
+
+	# If we have fewer than max_summaries and didn't get strong contextual matches,
+	# add the most recent summary as fallback (if not already included)
+	if results.size() < max_summaries and contextual_matches < 1:
+		# Most recent summary is at the end after sorting
+		for summary_entry in scored_summaries:
+			if summary_entry.score == 0:  # Not already included
+				results.append({
+					"summary_text": summary_entry.summary_text,
+					"timestamp": summary_entry.timestamp,
+					"memory_range": summary_entry.memory_range
+				})
+				break  # Just add one fallback
 
 	return results
 

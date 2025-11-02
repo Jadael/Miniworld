@@ -191,6 +191,42 @@ To test the system:
 6. Restart the agent to verify summaries load from vault
 7. Use `@compact-memories` to manually trigger
 
+## RAG Integration (Retrieval-Augmented Generation)
+
+Short-term summaries are now embedded and stored in VectorStore, enabling **semantic retrieval** of relevant past experiences:
+
+### How It Works
+
+1. **Embedding**: When a short-term summary is generated, it's automatically embedded using Ollama
+2. **Storage**: Stored in VectorStore (same as notes) with metadata:
+   - `type`: "memory_summary"
+   - `timestamp`: When summary was created
+   - `memory_range_start/end`: Which memories it covers (e.g., 65-128)
+   - `summary_text`: The actual summary content
+3. **Retrieval**: `get_relevant_summaries_for_context()` finds summaries semantically similar to current situation
+4. **Display**: Thinker prompts include "RELATED PAST EXPERIENCES" section with top 2 relevant summaries
+
+### Why This Matters
+
+- **Better than individual memories**: Summaries are LLM-compressed coherent narratives (~64 memories → 2-3 sentences)
+- **Complements notes**: Notes = explicit knowledge, Summaries = experiential history
+- **Contextual recall**: Agent can remember "I've been in this situation before" even if it's not in immediate window
+- **Token efficient**: Summaries are already compressed, perfect for RAG
+
+### Example
+
+```
+POTENTIALLY RELATED PRIVATE NOTES:
+- garden: I planted some flowers here last week
+
+RELATED PAST EXPERIENCES:
+- I explored the garden and greenhouse, discovering rare plants and tools (memories 65-128)
+- I spent time with friends in the courtyard, playing games and sharing stories (memories 129-192)
+
+LONG TERM MEMORY SUMMARY
+...
+```
+
 ## Benefits
 
 1. **Attention Budget**: Summaries are token-efficient vs. full memories
@@ -199,10 +235,11 @@ To test the system:
 4. **Clean Chunks**: Summaries regenerate every ~64 memories (not per-memory)
 5. **Progressive Squashing**: Long-term summary traces back to earliest memories
 6. **Persistence**: Summaries survive restarts via vault storage
-7. **Historical Record**: Timestamped short-term summaries preserved for future features
-8. **Base Model Support**: Works with comma-v0.1-2t and other base models
-9. **Universal**: Effective for instruct/chat models too
-10. **Automatic**: Runs in background, no manual intervention needed
+7. **Historical Record**: Timestamped short-term summaries preserved for analysis
+8. **RAG-Enabled**: Summaries embedded for semantic retrieval of past experiences
+9. **Base Model Support**: Works with comma-v0.1-2t and other base models
+10. **Universal**: Effective for instruct/chat models too
+11. **Automatic**: Runs in background, no manual intervention needed
 
 ## Future Enhancements
 
