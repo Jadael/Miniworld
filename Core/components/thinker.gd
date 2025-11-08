@@ -367,7 +367,7 @@ func _construct_prompt(context: Dictionary) -> String:
 
 	# Available command reference early for context
 	prompt += "BASIC COMMANDS:\n"
-	prompt += "(Your response must start with a valid command keyword.)\n"
+	prompt += "(Your response must start with a valid command keyword, and MUST be only a single line.)\n"
 	var command_list: Array = []
 	if owner.has_property("thinker.command_list"):
 		command_list = owner.get_property("thinker.command_list")
@@ -522,7 +522,7 @@ func _construct_prompt(context: Dictionary) -> String:
 	# Command prompt line for base models (hints next token prediction to favor a command)
 	# Show prior command explicitly to reinforce "do not repeat" instruction
 
-	prompt += "Now that you are caught up, what do you do next? Consider what you've already done, what happened, and what you want to achieve next. Use reasoning after | to explain your goal, possible outcomes, and potential follow up based on different outcomes as a hint to your future self. Do not repeat your prior command.\n\n"
+	prompt += "Now that you are caught up, what do you do next? Consider what you've already done, what happened, and what you want to achieve next. Use reasoning after | to explain your goal, possible outcomes, and potential follow up based on different outcomes as a hint to your future self. Do not repeat your prior command. Your response must be a single line.\n\n"
 
 	# Display last command if available (helps models avoid repetition)
 	# Format: single line with reasoning after | (exactly as they should write it)

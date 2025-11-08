@@ -461,11 +461,13 @@ func _cmd_go(args: Array) -> Dictionary:
 	"""GO command - Move to another location through an exit.
 
 	Attempts to find and traverse an exit in the current location.
+	If no direct exit exists, uses pathfinding to find a route to
+	a room with the given name and takes the first step automatically.
 	Broadcasts departure and arrival events. Automatically performs
 	a look command at the destination.
 
 	Args:
-		args: Array containing the exit name (may be multi-word like "The Lobby")
+		args: Array containing the exit name or destination room name
 			  Accepts "go <exit>" or "go to <exit>" (the word "to" is optional)
 
 	Returns:
@@ -476,9 +478,14 @@ func _cmd_go(args: Array) -> Dictionary:
 
 	Notes:
 		Supports natural language variations:
-		- "go lobby" - Direct
+		- "go lobby" - Direct exit or pathfinding to room named "lobby"
 		- "go to lobby" - Natural (word "to" is stripped)
-		- "go The Lobby" - Multi-word exit names work with both forms
+		- "go The Lobby" - Multi-word exit/room names work with both forms
+
+	Pathfinding:
+		If no direct exit matches, searches for a room with that name and
+		automatically takes the first step of the shortest path. Shows a
+		hint about the remaining path (like the SAY "but no one heard" hint).
 	"""
 	if args.size() == 0:
 		return {"success": false, "message": TextManager.get_text("commands.movement.go.missing_arg")}
@@ -503,8 +510,33 @@ func _cmd_go(args: Array) -> Dictionary:
 		return {"success": false, "message": TextManager.get_text("commands.movement.go.no_exits")}
 
 	var destination: WorldObject = location_comp.get_exit(exit_name)
+
+	# If no direct exit, try pathfinding to a room with that name
+	var pathfinding_hint: String = ""
 	if destination == null:
-		return {"success": false, "message": TextManager.get_text("commands.movement.go.no_exit", {"exit": exit_name})}
+		var path: Array[String] = WorldKeeper.find_path(current_location, exit_name)
+		if path.size() > 0:
+			# Found a path! Take the first step
+			var first_exit: String = path[0]
+			destination = location_comp.get_exit(first_exit)
+
+			# Build hint about the full path
+			if path.size() == 1:
+				pathfinding_hint = TextManager.get_text("commands.movement.go.pathfinding_arrived", {
+					"destination": exit_name
+				})
+			else:
+				# Show remaining path
+				var remaining_path: Array[String] = []
+				for i in range(1, path.size()):
+					remaining_path.append(path[i])
+				pathfinding_hint = TextManager.get_text("commands.movement.go.pathfinding_progress", {
+					"destination": exit_name,
+					"remaining": ", ".join(remaining_path)
+				})
+		else:
+			# No path found - return error
+			return {"success": false, "message": TextManager.get_text("commands.movement.go.no_exit", {"exit": exit_name})}
 
 	# Broadcast departure event to old location
 	var departure_msg := TextManager.get_text("commands.movement.go.departure", {"actor": owner.name, "destination": destination.name})
@@ -547,6 +579,10 @@ func _cmd_go(args: Array) -> Dictionary:
 
 	# Combine transition message with room description
 	var full_message: String = transition_msg + "\n\n" + look_result.message
+
+	# Add pathfinding hint if we're on a multi-step journey
+	if not pathfinding_hint.is_empty():
+		full_message += "\n\n" + pathfinding_hint
 
 	return {
 		"success": true,

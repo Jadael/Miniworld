@@ -982,6 +982,140 @@ func get_stats() -> Dictionary:
 		"next_id": next_object_number
 	}
 
+func find_path(start_location: WorldObject, destination: Variant) -> Array[String]:
+	"""Find the shortest path from start_location to destination.
+
+	Uses breadth-first search to find the shortest path through room exits.
+
+	Args:
+		start_location: The WorldObject to start from (must have LocationComponent)
+		destination: Either a WorldObject or String name of the destination room
+
+	Returns:
+		Array of exit names to follow to reach destination.
+		Empty array if no path exists or if start/destination invalid.
+
+	Notes:
+		- If destination is a String, searches for room by name (case-insensitive)
+		- Uses BFS so guarantees shortest path
+		- Path includes only the exit names, not room names
+
+	Example:
+		var path = WorldKeeper.find_path(lobby, "The Garden")
+		# Returns ["north", "east"] meaning: go north, then go east
+	"""
+	# Validate start location
+	if start_location == null:
+		return []
+
+	var start_comp: LocationComponent = start_location.get_component("location")
+	if start_comp == null:
+		return []
+
+	# Resolve destination to WorldObject
+	var dest_obj: WorldObject = null
+	if destination is WorldObject:
+		dest_obj = destination
+	elif destination is String:
+		# Search for room by name with fuzzy matching (same logic as LocationComponent.get_exit)
+		var search: String = destination.to_lower().strip_edges()
+
+		for room in get_all_rooms():
+			var room_name: String = room.name.to_lower()
+
+			# Exact match
+			if room_name == search:
+				dest_obj = room
+				break
+
+			# Remove common articles for matching
+			var articles: Array[String] = ["the ", "a ", "an "]
+			var matched: bool = false
+			for article in articles:
+				if room_name.begins_with(article):
+					var name_without_article: String = room_name.substr(article.length())
+					if name_without_article == search:
+						dest_obj = room
+						matched = true
+						break
+					# Also try prefix match without article
+					if name_without_article.begins_with(search):
+						dest_obj = room
+						matched = true
+						break
+
+			if matched:
+				break
+
+			# Prefix match
+			if room_name.begins_with(search):
+				dest_obj = room
+				break
+
+			# Word-boundary partial match (e.g., "Lobby" matches "The Grand Lobby")
+			var search_words: Array = search.split(" ")
+			var room_words: Array = room_name.split(" ")
+
+			# Single word search matching any word in room name
+			if search_words.size() == 1:
+				for room_word in room_words:
+					if room_word == search or room_word.begins_with(search):
+						dest_obj = room
+						matched = true
+						break
+				if matched:
+					break
+
+	if dest_obj == null:
+		return []
+
+	# Already at destination
+	if start_location == dest_obj:
+		return []
+
+	# BFS to find shortest path
+	# Queue contains: [current_room, path_to_current]
+	var queue: Array = [[start_location, []]]
+	var visited: Dictionary = {start_location: true}
+
+	while queue.size() > 0:
+		var current_data: Array = queue.pop_front()
+		var current_room: WorldObject = current_data[0]
+		var current_path: Array = current_data[1]
+
+		# Get exits from current room
+		var location_comp: LocationComponent = current_room.get_component("location")
+		if location_comp == null:
+			continue
+
+		var exits: Dictionary = location_comp.get_exits()
+		for exit_name in exits.keys():
+			var next_room: WorldObject = exits[exit_name]
+
+			# Skip if already visited
+			if visited.has(next_room):
+				continue
+
+			# Build path to this next room
+			var new_path: Array = current_path.duplicate()
+			new_path.append(exit_name)
+
+			# Check if we reached destination
+			if next_room == dest_obj:
+				# Convert to Array[String] for type safety
+				var result: Array[String] = []
+				for exit in new_path:
+					result.append(exit)
+				return result
+
+			# Mark as visited and add to queue
+			visited[next_room] = true
+			queue.append([next_room, new_path])
+
+	# No path found
+	return []
+
+
 ## Signal handlers for auto-save tracking
 
 func _on_object_property_changed(_property_name: String, _old_value: Variant, _new_value: Variant) -> void:
