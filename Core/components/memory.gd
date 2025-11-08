@@ -1163,7 +1163,13 @@ func _load_recent_memories_from_vault(owner_name: String) -> void:
 		Loads up to immediate_window memories (default 64).
 		Does not trigger compaction or bootstrap checks.
 		Respects MemoryBudget limits when adding memories.
+		Skips loading if memories are already present (WorldKeeper loaded them).
 	"""
+	# Skip if memories are already loaded (e.g., by WorldKeeper during world load)
+	if memories.size() > 0:
+		print("[Memory] %s: Skipping vault memory load - %d memories already present" % [owner_name, memories.size()])
+		return
+
 	var immediate_window: int = _get_compaction_config("immediate_window", 64)
 
 	# Load recent memories from vault
