@@ -5,6 +5,7 @@
 ## - Automatically record observations of others
 ## - Retrieve recent or relevant memories with multi-scale context
 ## - Store notes with semantic search
+## - Load pre-existing memories from vault at initialization (bootstrap support)
 ##
 ## Memory Compaction (Progressive Summarization):
 ## - Uses cascading temporal summaries (Anthropic context engineering pattern)
@@ -55,6 +56,13 @@
 ## - Uses MemoryBudget daemon for dynamic sizing based on system resources
 ## - Vault files persist indefinitely (only in-RAM cache is limited)
 ## - Limit recalculates automatically as agents are added/removed
+##
+## Bootstrapping Agents with Pre-existing Memories:
+## - Agents can be seeded with memories and notes by manually adding markdown files to vault
+## - At initialization, loads up to immediate_window (default 64) recent memories from vault
+## - Notes are always loaded from vault at startup
+## - This enables "bootstrapping" agents with background knowledge and past experiences
+## - Simply add markdown files to user://vault/agents/{name}/memories/ or /notes/
 ##
 ## Dependencies:
 ## - ActorComponent: Auto-connects for memory recording (optional but recommended)
@@ -114,6 +122,9 @@ func _on_added(obj: WorldObject) -> void:
 
 	# Load summaries from vault (restores summaries from previous sessions)
 	load_summaries_from_vault(obj.name)
+
+	# Load recent memories from vault (bootstrap agent with manually added memories)
+	_load_recent_memories_from_vault(obj.name)
 
 	# Connect to actor events for automatic memory recording
 	if obj.has_component("actor"):
@@ -1136,6 +1147,42 @@ func load_summaries_from_vault(owner_name: String) -> void:
 		var parsed: Dictionary = MarkdownVault.parse_frontmatter(longterm_file)
 		longterm_summary = parsed.body.strip_edges().replace("# Long-term Memory Summary\n\n", "")
 		print("[Memory] %s: Loaded longterm summary (%d chars)" % [owner_name, longterm_summary.length()])
+
+
+func _load_recent_memories_from_vault(owner_name: String) -> void:
+	"""Load recent memories from vault at initialization.
+
+	This ensures that manually added memories in the vault are loaded
+	into RAM at startup, allowing agents to be 'bootstrapped' with
+	pre-existing knowledge.
+
+	Args:
+		owner_name: Name of the agent (for directory path)
+
+	Notes:
+		Loads up to immediate_window memories (default 64).
+		Does not trigger compaction or bootstrap checks.
+		Respects MemoryBudget limits when adding memories.
+	"""
+	var immediate_window: int = _get_compaction_config("immediate_window", 64)
+
+	# Load recent memories from vault
+	var loaded_memories: Array[Dictionary] = load_memories_from_vault(owner_name, immediate_window)
+
+	if loaded_memories.size() > 0:
+		print("[Memory] %s: Loaded %d recent memories from vault at initialization" % [owner_name, loaded_memories.size()])
+
+		# Add each memory to the memories array without triggering saves
+		for memory in loaded_memories:
+			memories.append(memory)
+
+		# Update limit from MemoryBudget
+		if MemoryBudget:
+			max_memories = MemoryBudget.get_memory_limit_for_agent(owner)
+
+		# Trim if we exceed the limit (shouldn't happen with immediate_window, but defensive)
+		if memories.size() > max_memories:
+			memories = memories.slice(memories.size() - max_memories, memories.size())
 
 
 func save_memory_to_vault(owner_name: String, memory_text: String, metadata: Dictionary) -> void:

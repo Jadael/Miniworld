@@ -367,7 +367,7 @@ func _construct_prompt(context: Dictionary) -> String:
 
 	# Available command reference early for context
 	prompt += "BASIC COMMANDS:\n"
-	prompt += "(Your response must start with a valid command keyword.)\n\n"
+	prompt += "(Your response must start with a valid command keyword.)\n"
 	var command_list: Array = []
 	if owner.has_property("thinker.command_list"):
 		command_list = owner.get_property("thinker.command_list")
@@ -389,9 +389,9 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "\n"
 
 	# Response format instructions
-	#prompt += "EXAMPLES\n\n"
+	prompt += "EXAMPLE:\n\n"
 	#prompt += "go garden | Want to explore somewhere new.\n"
-	#prompt += "say Hello! How are you today?\n"
+	prompt += "say Hello! How are you today? | Greeting them before I wait for a resposne.\n"
 	#prompt += "emote waves enthusiastically | They look friendly, making a connection.\n"
 	#prompt += "think I should wait for a bit and see what they say.\n"
 	#prompt += "note Goal -> I want to...\n\n"

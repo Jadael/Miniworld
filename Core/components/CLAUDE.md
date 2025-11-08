@@ -109,6 +109,26 @@ All command messages are loaded from `user://vault/text/commands/*.md` and can b
 - Metadata includes: command_text (if command), is_failed, failed_reason, location, occupants, event_type
 - Full memory history persists indefinitely; RAM cache limited by MemoryBudget daemon
 
+**Bootstrapping Agents**:
+- Agents can be pre-seeded with memories and notes by adding markdown files to vault
+- At initialization, loads up to immediate_window (default 64) recent memories from vault
+- Notes are always loaded from vault at startup
+- Enables "bootstrapping" agents with background knowledge and past experiences
+- To bootstrap: add markdown files to `user://vault/agents/{agent_name}/memories/` or `/notes/`
+- Memory files should have YAML frontmatter with timestamp, type, and optional metadata (location, occupants, etc.)
+- Format example:
+  ```markdown
+  ---
+  timestamp: 2025-03-11T14:30:22Z
+  type: memory
+  location: The Garden
+  ---
+
+  # Memory
+
+  You explored the garden and found a hidden path.
+  ```
+
 ### LocationComponent
 - Manages exits as dictionary (exit_name → destination_id)
 - Handles movement messages (arrivals/departures)
