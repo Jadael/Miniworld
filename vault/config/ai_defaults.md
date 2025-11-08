@@ -27,11 +27,17 @@ _Maximum relevant notes from personal wiki in prompt_
 
 ## Dream Analysis
 
-**dream_recent_count**: 5
-_Recent memories included in dream analysis_
+**dream_memory_count**: 128
+_Total memories to analyze during dream (mix of recent and older experiences)_
 
-**dream_random_count**: 5
-_Random memories included in dream analysis_
+**dream_expansion_multiplier**: 2.0
+_Multiplier for older memory sampling (2.0 = sample 2x recent count from archive)_
+
+**dream_chunk_min**: 2
+_Minimum memories per narrative chunk (for dream-like non-linear structure)_
+
+**dream_chunk_max**: 4
+_Maximum memories per narrative chunk_
 
 ---
 

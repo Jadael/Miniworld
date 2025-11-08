@@ -184,8 +184,6 @@ func generate(prompt: String, options: Dictionary = {}) -> void:
 	var headers = ["Content-Type: application/json"]
 
 	var url = host + "/api/generate"
-	print("[OllamaClient] Sending generate request to: %s" % url)
-	print("[OllamaClient] Model: %s, Stop tokens: %s, Think: %s" % [model, options.get("stop", []), body.get("think", false)])
 	var err = http_request.request(url, headers, HTTPClient.METHOD_POST, json_body)
 
 	if err != OK:
@@ -249,8 +247,6 @@ func chat(messages: Array, options: Dictionary = {}) -> void:
 	var headers = ["Content-Type: application/json"]
 
 	var url = host + "/api/chat"
-	print("[OllamaClient] Sending chat request to: %s" % url)
-	print("[OllamaClient] Model: %s, Messages: %d, Stop tokens: %s, Think: %s" % [model, messages.size(), options.get("stop", []), body.get("think", false)])
 	var err = http_request.request(url, headers, HTTPClient.METHOD_POST, json_body)
 
 	if err != OK:
@@ -270,7 +266,6 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 	Notes:
 		Routes to appropriate handler based on current_request_type.
 	"""
-	print("[OllamaClient] Request completed: result=%d, response_code=%d, body_size=%d, type=%s" % [result, response_code, body.size(), current_request_type])
 	var request_type = current_request_type
 	is_generating = false
 	current_request_type = ""
@@ -316,7 +311,6 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 
 	# Parse complete JSON response
 	var json_str = body.get_string_from_utf8()
-	print("[OllamaClient] Received JSON: %s" % json_str.substr(0, 200))
 	var json = JSON.new()
 	var parse_result = json.parse(json_str)
 
@@ -356,9 +350,6 @@ func _on_generate_completed(data: Dictionary) -> void:
 		# Extract thinking/reasoning content if present (for reasoning models)
 		if data.has("thinking"):
 			thinking_content = data.thinking
-			print("[OllamaClient] Extracted thinking content from /api/generate (length: %d)" % thinking_content.length())
-
-		print("[OllamaClient] Extracted response from /api/generate format")
 
 	# Check for /api/chat response format
 	elif data.has("message") and data.message.has("content"):
@@ -367,9 +358,6 @@ func _on_generate_completed(data: Dictionary) -> void:
 		# Extract thinking/reasoning content if present (for reasoning models)
 		if data.message.has("thinking"):
 			thinking_content = data.message.thinking
-			print("[OllamaClient] Extracted thinking content (length: %d)" % thinking_content.length())
-
-		print("[OllamaClient] Extracted response from /api/chat format")
 
 	else:
 		print("[OllamaClient] Unexpected response format - keys: %s" % str(data.keys()))
@@ -381,7 +369,6 @@ func _on_generate_completed(data: Dictionary) -> void:
 		"thinking": thinking_content
 	}
 
-	print("[OllamaClient] Emitting generate_finished with content length: %d, thinking length: %d" % [response_content.length(), thinking_content.length()])
 	generate_finished.emit(result)
 
 
@@ -417,7 +404,6 @@ func embed(texts: Variant) -> void:
 	var headers = ["Content-Type: application/json"]
 
 	var url = host + "/api/embed"
-	print("[OllamaClient] Sending embed request to: %s (model: %s, count: %d)" % [url, embedding_model, input.size()])
 	var err = http_request.request(url, headers, HTTPClient.METHOD_POST, json_body)
 
 	if err != OK:
@@ -434,5 +420,4 @@ func _on_embed_completed(data: Dictionary) -> void:
 		return
 
 	var embeddings: Array = data.embeddings
-	print("[OllamaClient] Emitting embed_finished with %d embeddings" % embeddings.size())
 	embed_finished.emit(embeddings)

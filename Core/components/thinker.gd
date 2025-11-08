@@ -168,7 +168,6 @@ func process(delta: float) -> void:
 
 	think_timer -= delta
 	if think_timer <= 0.0:
-		print("[Thinker] %s is thinking..." % owner.name)
 		think_timer = get_think_interval()
 		_think()
 
@@ -197,8 +196,6 @@ func _think() -> void:
 
 	# Request LLM decision asynchronously
 	if Shoggoth and Shoggoth.ollama_client:
-		print("[Thinker] %s queuing LLM request..." % owner.name)
-
 		# Pass a callable that:
 		# 1. Broadcasts thinking behavior (at the last moment before context is built)
 		# 2. Builds the prompt fresh when Shoggoth is ready to execute
@@ -583,8 +580,6 @@ func _on_thought_complete(result: Variant) -> void:
 		# It's implementation detail (how the model arrived at the decision),
 		# not in-character thought. Different models/prompts produce different reasoning,
 		# so storing it would clutter narrative history with meta information.
-		if thinking != "":
-			print("[Thinker] %s generated %d chars of CoT reasoning (not stored as memory)" % [owner.name, thinking.length()])
 	elif result is String:
 		response = result
 	else:

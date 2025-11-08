@@ -102,7 +102,7 @@ const COMMANDS = {
 		"aliases": [],
 		"category": "memory",
 		"syntax": "dream",
-		"description": "LLM-analyzed jumble of recent + random memories for insights (private, async). Auto-saved as note. Use when stuck, curious, or seeking connections. Others see you \"lost in thought\".",
+		"description": "Deep memory synthesis via dream-like reflection. Analyzes 128+ memories (recent + older) using non-linear narrative, counterfactuals, and dream themes. Filters previous dreams to prevent loops. Saves as 'Dream' note (overwrites) + memory. Use for insight, breaking patterns, exploring possibilities. Private, async. Others see you \"lost in thought\".",
 		"example": "dream"
 	},
 

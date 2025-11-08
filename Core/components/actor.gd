@@ -400,6 +400,15 @@ func execute_command(command: String, args: Array = [], reason: String = "", tas
 	last_command = full_command
 	last_result = result
 	last_reason = reason
+
+	# Concise activity log showing actor and action
+	var status_icon: String = "✓" if result.success else "✗"
+	var args_str: String = " ".join(args) if args.size() > 0 else ""
+	var log_line: String = "[%s] %s %s" % [owner.name, command, args_str]
+	if reason != "":
+		log_line += " | %s" % reason  # Show full reasoning
+	print("%s %s" % [status_icon, log_line])
+
 	command_executed.emit(command, result, reason)
 
 	# Record training data if task_id provided and TrainingDataCollector available
@@ -558,7 +567,6 @@ func _cmd_go(args: Array) -> Dictionary:
 
 	# Broadcast arrival event to new location
 	var arrival_msg := TextManager.get_text("commands.movement.go.arrival", {"actor": owner.name, "origin": prior_location_name})
-	print("[Actor] Broadcasting arrival: %s to %s" % [arrival_msg, current_location.name])
 	EventWeaver.broadcast_to_location(current_location, {
 		"type": "movement",
 		"actor": owner,
@@ -775,27 +783,29 @@ func _cmd_think(args: Array) -> Dictionary:
 
 
 func _cmd_dream(_args: Array) -> Dictionary:
-	"""DREAM command - Review mixed memories for insights.
+	"""DREAM command - Deep memory synthesis through dream-like reflection.
 
-	Combines recent and random memories, sends them to an LLM for analysis,
-	and stores the insights as a note. Useful for making connections between
-	older and newer experiences, or breaking out of repetitive thought patterns.
+	Uses Python prototype's sophisticated dream scaffolding:
+	- Large memory pool (128+ memories by default, configurable)
+	- Filters previous dreams to prevent feedback loops
+	- Oversamples older memories for depth (2x recent count from archive)
+	- Creates chunked non-linear narrative (2-4 memories per chunk, shuffled)
+	- Rich prompt encouraging counterfactuals, dream themes, creative insight
+	- Stores result as both a note (overwrites "Dream" entry) and memory
 
 	Args:
 		_args: Unused, but kept for consistent command signature
 
 	Returns:
 		Dictionary with:
-		- success (bool): True if dream analysis succeeded
-		- message (String): The dream insights from the LLM
+		- success (bool): True if dream analysis started
+		- message (String): Acknowledgment that dream has begun
 
 	Notes:
 		Requires memory component and Shoggoth LLM interface.
-		Creates a jumbled mix of ~5 recent + ~5 random older memories.
-		LLM processes them for patterns, insights, and connections.
-		Result is stored as a note for future reference.
 		This is asynchronous - the command returns immediately and
 		the dream insight appears as a follow-up message.
+		Configuration via vault/config/ai_defaults.md (dream_memory_count, etc.)
 	"""
 	if not owner.has_component("memory"):
 		return {"success": false, "message": TextManager.get_text("commands.memory.dream.no_memory")}
@@ -805,31 +815,115 @@ func _cmd_dream(_args: Array) -> Dictionary:
 
 	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
 
-	# Get mix of recent and random memories
-	var recent: Array[Dictionary] = memory_comp.get_recent_memories(5)
-	var random: Array[Dictionary] = memory_comp.get_random_memories(5)
+	# Get configuration from vault (with fallbacks matching Python prototype defaults)
+	var dream_count: int = TextManager.get_config("dream_memory_count", 128)
+	var expansion_multiplier: float = TextManager.get_config("dream_expansion_multiplier", 2.0)
+	var chunk_min: int = TextManager.get_config("dream_chunk_min", 2)
+	var chunk_max: int = TextManager.get_config("dream_chunk_max", 4)
 
-	if recent.size() == 0 and random.size() == 0:
+	# Get all available memories for filtering and sampling
+	var all_memories: Array[Dictionary] = memory_comp.get_all_memories()
+
+	if all_memories.size() == 0:
 		return {"success": false, "message": TextManager.get_text("commands.memory.dream.no_memories")}
 
-	# Combine and shuffle to create dream-like jumble
+	# Filter out previous dream memories to prevent feedback loops (Python prototype pattern)
+	var filtered_memories: Array[Dictionary] = []
+	for memory in all_memories:
+		var mem_dict: Dictionary = memory as Dictionary
+		var content_lower: String = mem_dict.content.to_lower()
+		# Skip if this is a dream memory or dream insight
+		if "dream insight:" in content_lower or "you've had a dream:" in content_lower:
+			continue
+		filtered_memories.append(memory)
+
+	if filtered_memories.size() == 0:
+		return {"success": false, "message": "All your memories are dreams. Try creating new experiences first."}
+
+	# Calculate memory distribution (Python prototype pattern)
+	var target_count: int = min(dream_count, filtered_memories.size())
+	var recent_count: int = target_count / 2  # Half recent
+	var older_sample_count: int = int(recent_count * expansion_multiplier)  # 2x recent from archive
+
+	# Get recent memories (up to half the target)
+	var recent_memories: Array[Dictionary] = memory_comp.get_recent_memories(recent_count)
+
+	# Get older memories by excluding the recent set
+	var older_memories: Array[Dictionary] = []
+	for memory in filtered_memories:
+		var is_recent: bool = false
+		for recent in recent_memories:
+			if memory.get("content", "") == recent.get("content", ""):
+				is_recent = true
+				break
+		if not is_recent:
+			older_memories.append(memory)
+
+	# Randomly sample from older memories (Python prototype oversampling pattern)
+	var sampled_old: Array[Dictionary] = []
+	if older_memories.size() > 0:
+		var sample_size: int = min(older_sample_count, older_memories.size())
+		var indices: Array[int] = []
+		for i in range(older_memories.size()):
+			indices.append(i)
+		indices.shuffle()
+		for i in range(sample_size):
+			sampled_old.append(older_memories[indices[i]])
+
+	# Combine all memories
+	var combined_memories: Array[Dictionary] = []
+	combined_memories.append_array(recent_memories)
+	combined_memories.append_array(sampled_old)
+
+	if combined_memories.size() == 0:
+		return {"success": false, "message": TextManager.get_text("commands.memory.dream.no_memories")}
+
+	# Create chunked non-linear narrative (Python prototype pattern)
+	# This maintains some local chronology but creates a dream-like overall structure
+	var memory_chunks: Array[Array] = []
+	var i: int = 0
+	while i < combined_memories.size():
+		var chunk_size: int = randi_range(chunk_min, chunk_max)
+		var chunk: Array[Dictionary] = []
+		for j in range(chunk_size):
+			if i + j < combined_memories.size():
+				chunk.append(combined_memories[i + j])
+		if chunk.size() > 0:
+			memory_chunks.append(chunk)
+		i += chunk_size
+
+	# Shuffle chunks for dream-like non-linearity
+	memory_chunks.shuffle()
+
+	# Flatten back to single array in new order
 	var dream_memories: Array[Dictionary] = []
-	dream_memories.append_array(recent)
-	dream_memories.append_array(random)
-	dream_memories.shuffle()
+	for chunk in memory_chunks:
+		for memory in chunk:
+			dream_memories.append(memory)
 
-	# Build dream prompt
-	var prompt: String = "You are reviewing a jumbled set of memories. Look for patterns, insights, connections, or things you might have missed. These memories are a mix of recent experiences and older ones randomly surfaced.\n\n"
-	prompt += "## Memory Fragments\n\n"
-
+	# Build memories text for prompt (Python prototype format)
+	var memories_text: String = ""
 	for memory in dream_memories:
 		var mem_dict: Dictionary = memory as Dictionary
-		prompt += "- %s\n" % mem_dict.content
+		memories_text += "%s\n\n" % mem_dict.content
 
-	prompt += "\n## Task\n\n"
-	prompt += "Analyze these memory fragments. What patterns emerge? What connections can you make? "
-	prompt += "What insights or hunches arise? What might be worth investigating further?\n\n"
-	prompt += "Provide a brief analysis (2-4 sentences) focusing on actionable insights or interesting connections."
+	# Build rich dream prompt (Python prototype pattern with counterfactuals and dream themes)
+	var prompt: String = "%s\n\n" % memories_text
+	prompt += "You are telling the story of %s's memories.\n\n" % owner.name
+	prompt += "Your goal is to create a dream-like second-person real-time stream of consciousness of the entirety of %s's experiences and behaviors, both good and bad, exciting and mundane, to help them think through who they are and what they should be doing differently. " % owner.name
+	prompt += "Be creative, insightful, and focus on helping the character understand things not already mentioned in their experiences, by posing counterfactuals and letting the consequences play out. "
+	prompt += "What are they NOT doing, what are they NOT seeing, what should they wonder about, what could go wrong, what could go right? "
+	prompt += "Go crazy, freely adding, removing, or changing any details you want (and adding common dream themes like flying, falling, etc., even when they don't make sense) to make your points more visceral and illustrative. "
+	prompt += "Your response should be written as a first-person dream narrative that feels authentic to the character. "
+	prompt += "Please go on a thorough journey through everything that has happened above, including anything and everything that seems like an important detail."
+
+	# Character-aware system prompt (Python prototype pattern)
+	var system_prompt: String = "You are telling the story of a character's memories. "
+	system_prompt += "Your goal is to create a dream-like reflection of the entirety of their experiences and behaviors (both good and bad). "
+	system_prompt += "Be creative, insightful, and focus on helping the character understand things not already present in their experiences, and posing counterfactuals and letting the consequences play out is encouraged. "
+	system_prompt += "Go crazy, freely adding, removing, or changing any details you want to make your points more visceral and illustrative. "
+	system_prompt += "Your response should be written as a first-person dream narrative that feels authentic to the character. "
+	system_prompt += "Please go on a thorough journey through everything that has happened, as a dream. Do not repeat any previous dreams."
 
 	# Broadcast observable behavior (entering dream state)
 	if current_location:
@@ -842,8 +936,8 @@ func _cmd_dream(_args: Array) -> Dictionary:
 		})
 
 	# Request LLM analysis asynchronously
-	print("Dream: %s entering dream state..." % owner.name)
-	Shoggoth.generate_async(prompt, "You are an insightful analyst helping someone process their memories.",
+	print("Dream: %s entering dream state with %d memories..." % [owner.name, dream_memories.size()])
+	Shoggoth.generate_async(prompt, system_prompt,
 		func(result: Variant):
 			# Handle Dictionary format from Shoggoth
 			var content: String = result.content if result is Dictionary else result
@@ -859,31 +953,43 @@ func _cmd_dream(_args: Array) -> Dictionary:
 func _on_dream_complete(insight: String) -> void:
 	"""Handle dream analysis result from LLM.
 
-	Called when the LLM finishes analyzing the jumbled memories.
-	Stores the insight as a note and notifies the actor.
+	Called when the LLM finishes analyzing memories in dream state.
+	Implements Python prototype's dual storage pattern:
+	1. Stores as a note titled "Dream" (overwrites previous dream)
+	2. Also stores as a memory prefixed with "You've had a dream:"
+
+	This allows agents to:
+	- Access latest dream via note lookup (consistent title)
+	- Have dream in memory timeline for context building
+	- Not have dreams accumulate infinitely as separate notes
 
 	Args:
-		insight: The LLM's analysis of the memory fragments
+		insight: The LLM's dream narrative from memory analysis
 
 	Notes:
-		This is a callback from the async LLM request
+		This is a callback from the async LLM request.
+		Matches Python prototype's create_note + add_response_memory pattern.
 	"""
 	if not owner or not owner.has_component("memory"):
 		return
 
 	var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
 
-	# Store dream insight as a memory
-	memory_comp.add_memory("Dream insight: %s" % insight)
+	# Dual storage pattern from Python prototype:
+	# 1. Store as note (overwrites "Dream" - acts like dream journal with latest entry)
+	memory_comp.add_note("Dream", insight)
+
+	# 2. Store as memory (allows dream to appear in timeline and be referenced)
+	memory_comp.add_memory("You've had a dream: %s" % insight)
 
 	# If this is an AI agent, the insight will appear in their next memory review
 	# If this is the player, emit a command result
-	print("Dream: %s received insight: %s" % [owner.name, insight])
+	print("Dream: %s received insight (%d chars)" % [owner.name, insight.length()])
 
 	# Emit as a command result for player visibility
 	var result: Dictionary = {
 		"success": true,
-		"message": "Dream Insight:\n%s" % insight
+		"message": "Dream:\n%s" % insight
 	}
 	command_executed.emit("dream", result, "")
 
@@ -1044,10 +1150,8 @@ func observe_event(event: Dictionary) -> void:
 	"""
 	# Don't observe our own actions (already got the command result)
 	if event.get("actor") == owner:
-		print("[Actor] %s filtering out own event: %s" % [owner.name, event.get("message", "")])
 		return
 
-	print("[Actor] %s observing event: %s" % [owner.name, event.get("message", "")])
 	# Emit event to observers (UI, Memory, AI agents, etc.)
 	event_observed.emit(event)
 

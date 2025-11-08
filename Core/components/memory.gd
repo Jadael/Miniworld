@@ -181,9 +181,6 @@ func add_memory(content: String, metadata: Dictionary = {}) -> void:
 		- Lines starting with ">" are command echoes
 		- Other lines are observations or results
 	"""
-	# DEBUG: Print what's being stored
-	print("[Memory DEBUG] %s storing: %s" % [owner.name if owner else "unknown", content])
-
 	# Build metadata with current context if owner exists
 	var full_metadata: Dictionary = metadata.duplicate()
 	if owner:
@@ -522,7 +519,6 @@ func _on_event_observed(event: Dictionary) -> void:
 		return
 
 	var memory_content = EventWeaver.format_event(event)
-	print("[Memory] %s recording event (type=%s): %s" % [owner.name, event_type, memory_content])
 
 	if memory_content != "":
 		add_memory(memory_content, {

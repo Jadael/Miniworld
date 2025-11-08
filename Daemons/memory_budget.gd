@@ -113,15 +113,21 @@ func _calculate_memory_budget() -> void:
 	# Clamp to configured min/max
 	per_agent_memories = clampi(per_agent_memories, min_per_agent, max_per_agent)
 
+	# Only log if the limit changed significantly (more than 10% change)
+	var old_limit: int = _cached_per_agent_limit
 	_cached_per_agent_limit = per_agent_memories
 
-	# Debug logging
-	print("[MemoryBudget] Calculation:")
-	print("  Current app usage: %.2f MB" % (current_usage_bytes / (1024.0 * 1024.0)))
-	print("  Estimated total RAM: %.2f MB" % (estimated_total_ram_bytes / (1024.0 * 1024.0)))
-	print("  Memory budget (%.1f%%): %.2f MB" % [percent_of_ram * 100, memory_budget_bytes / (1024.0 * 1024.0)])
-	print("  Agents with memory: %d" % _cached_agent_count)
-	print("  Per-agent limit: %d memories (~%.2f MB)" % [per_agent_memories, (per_agent_memories * avg_memory_size) / (1024.0 * 1024.0)])
+	var change_ratio: float = 0.0
+	if old_limit > 0:
+		change_ratio = abs(float(per_agent_memories - old_limit) / float(old_limit))
+
+	# Log if significant change, or if this is the first calculation (old_limit == default)
+	if old_limit == 65536 or change_ratio > 0.1:
+		print("[MemoryBudget] %d agents → %d memories each (~%.1f MB total)" % [
+			_cached_agent_count,
+			per_agent_memories,
+			(per_agent_memories * _cached_agent_count * avg_memory_size) / (1024.0 * 1024.0)
+		])
 
 
 func _count_agents_with_memory() -> int:
