@@ -356,9 +356,9 @@ func _construct_prompt(context: Dictionary) -> String:
 	# Agent identity and personality (character context)
 	prompt += "CURRENT SITUATION:\n"
 	prompt += "You are %s in %s. " % [context.name, context.location_name]
-	prompt += "%s\n\n" % context.profile
+	prompt += "%s\n" % context.profile
 	if context.occupants.size() > 0:
-		prompt += "Also here: %s\n" % ", ".join(context.occupants)
+		prompt += " Also here: %s\n" % ", ".join(context.occupants)
 	else:
 		prompt += "You are alone here.\n"
 
@@ -386,13 +386,13 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "\n"
 
 	# Response format instructions
-	prompt += "EXAMPLE:\n\n"
+	prompt += "EXAMPLE:\n"
 	#prompt += "go garden | Want to explore somewhere new.\n"
 	prompt += "say Hello! How are you today? | Greeting them before I wait for a resposne.\n"
 	#prompt += "emote waves enthusiastically | They look friendly, making a connection.\n"
 	#prompt += "think I should wait for a bit and see what they say.\n"
-	#prompt += "note Goal -> I want to...\n\n"
-	#prompt += "help\n\n"
+	prompt += "note Goal -> I want to...\n"
+	prompt += "help\n\n"
 	#prompt += "(Everything after the | is private and visible only to you.)\n\n"
 
 	# Contextually relevant notes from personal wiki (before transcript for context)
@@ -420,12 +420,12 @@ func _construct_prompt(context: Dictionary) -> String:
 	# Multi-scale memory context (cascading temporal summaries)
 	# Long-term summary (oldest compressed memories)
 	if context.has("longterm_summary") and context.longterm_summary != "":
-		prompt += "LONG TERM MEMORY SUMMARY\n\n"
+		prompt += "LONG TERM MEMORY SUMMARY:\n\n"
 		prompt += "%s\n\n" % context.longterm_summary
 
 	# Recent summary (memories that aged out of immediate window)
 	if context.has("recent_summary") and context.recent_summary != "":
-		prompt += "SHORT TERM MEMORY SUMMARY:\n\n"
+		prompt += "MID TERM MEMORY SUMMARY:\n\n"
 		prompt += "%s\n\n" % context.recent_summary
 
 	# Recent observations from memory - Shows narrative results only, not command echoes
@@ -433,7 +433,7 @@ func _construct_prompt(context: Dictionary) -> String:
 	# Separating commands from narrative results helps smaller models avoid echo/pattern reinforcement
 	# Memory deduplication: Collapse consecutive identical memories to prevent pattern reinforcement
 	if context.recent_memories.size() > 0:
-		prompt += "MOST RECENT MEMORIES:\n\n"
+		prompt += "RECENT MEMORIES:\n\n"
 
 		var last_content: String = ""
 		var repeat_count: int = 0
@@ -571,7 +571,7 @@ func _on_thought_complete(result: Variant) -> void:
 
 	# Handle both legacy String format and new Dictionary format
 	var response: String = ""
-	var thinking: String = ""
+	var thinking: String = "" # FIXME: The local variable "thinking" is declared but never used in the block. If this is intended, prefix it with an underscore: "_thinking".
 
 	if result is Dictionary:
 		response = result.get("content", "")

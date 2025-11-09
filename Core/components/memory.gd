@@ -1756,11 +1756,11 @@ func recall_notes_instant(query: String) -> String:
 	# Show most recent note first (convenience)
 	if most_recent_title != "":
 		var recent_note: Dictionary = notes[most_recent_title]
-		results += "## Most Recently Edited Note\n\n"
+		results += "MOST RECENTLY EDITED NOTE:\n"
 		results += "**%s**\n%s\n\n" % [most_recent_title, recent_note.content]
 
 	# Show all note titles for reference
-	results += "## All Notes (%d total)\n\n" % notes.size()
+	results += "ALL NOTES (%d total):\n" % notes.size()
 	var titles: Array[String] = []
 	for title in notes.keys():
 		titles.append(title)
@@ -1784,12 +1784,12 @@ func recall_notes_instant(query: String) -> String:
 
 	# Show keyword matches if any
 	if matches.size() > 0:
-		results += "## Notes Matching '%s' (%d found)\n\n" % [query, matches.size()]
+		results += "NOTES MATCHING '%s' (%d found):\n" % [query, matches.size()]
 		for title in matches:
 			var note_data: Dictionary = notes[title]
 			results += "**%s**\n%s\n\n" % [title, note_data.content]
 	elif query != "":
-		results += "## Keyword Search\n\nNo notes contain '%s'. Check the list above for available notes.\n" % query
+		results += "KEYWORD SEARCH\nNo notes contain '%s'. Check the list above for available notes.\n" % query
 
 	return results
 
