@@ -8,6 +8,13 @@
 ## This is the MOO equivalent of a room object. Every navigable space
 ## in Miniworld should have this component attached.
 ##
+## Bidirectional Exit System:
+## - Exits are stored unidirectionally (in one room only)
+## - Navigation works bidirectionally - get_exits() checks both directions
+## - If room A has exit "north" → B, then B automatically shows exit "A" back
+## - This simplifies world building - only create exits once
+## - Pathfinding works seamlessly with bidirectional connections
+##
 ## Related: ActorComponent (for entities that move between locations)
 
 extends ComponentBase
@@ -68,7 +75,7 @@ func remove_exit(exit_name: String) -> void:
 
 
 func get_exit(exit_name: String) -> WorldObject:
-	"""Get the destination for an exit with generous matching.
+	"""Get the destination for an exit with generous matching (bidirectional).
 
 	Args:
 		exit_name: Name of the exit to look up
@@ -82,14 +89,18 @@ func get_exit(exit_name: String) -> WorldObject:
 		- Article-insensitive: "Lobby" matches "the lobby"
 		- Partial word match: "Lobby" matches "The Grand Lobby"
 		- Prefix match: "Lob" matches "Lobby"
+		- Checks both locally stored exits and reverse connections
 	"""
 	var search = exit_name.to_lower().strip_edges()
 	if search.is_empty():
 		return null
 
+	# Get all exits (includes bidirectional connections)
+	var all_exits: Dictionary = get_exits()
+
 	# Try exact match first (fastest)
-	if exits.has(search):
-		return exits[search]
+	if all_exits.has(search):
+		return all_exits[search]
 
 	# Helper function for fuzzy matching
 	var matches = func(search_str: String, target_str: String) -> bool:
@@ -137,51 +148,103 @@ func get_exit(exit_name: String) -> WorldObject:
 
 		return false
 
-	# Try fuzzy matching on all exit names
-	for exit_key in exits.keys():
+	# Try fuzzy matching on all exit names (includes bidirectional)
+	for exit_key in all_exits.keys():
 		if matches.call(search, exit_key):
-			return exits[exit_key]
+			return all_exits[exit_key]
 
 	return null
 
 
 func get_exits() -> Dictionary:
-	"""Get all exits from this location.
+	"""Get all exits from this location (bidirectional).
+
+	Returns bidirectional connections by checking both:
+	1. Exits stored in this room (pointing outward)
+	2. Exits in other rooms that point to this room (reverse connections)
 
 	Returns:
 		Dictionary mapping exit names (String) to destinations (WorldObject)
+
+	Notes:
+		- If room A has exit "north" → B, then B automatically shows "A" as an exit
+		- Exit names for reverse connections are the destination room's name
+		- This simplifies world building - only need to create exits once
 	"""
-	return exits
+	var all_exits: Dictionary = {}
+
+	# Add all locally stored exits
+	for exit_name in exits.keys():
+		all_exits[exit_name] = exits[exit_name]
+
+	# Check all rooms for exits pointing back to us
+	var all_rooms: Array[WorldObject] = WorldKeeper.get_all_rooms()
+	for room in all_rooms:
+		if room == owner:
+			continue  # Skip self
+
+		var other_loc: LocationComponent = room.get_component("location") as LocationComponent
+		if other_loc == null:
+			continue
+
+		# Check if any of their exits point to us
+		var other_exits: Dictionary = other_loc.exits  # Use .exits directly to avoid recursion
+		for exit_name in other_exits.keys():
+			var destination: WorldObject = other_exits[exit_name]
+			if destination == owner:
+				# This room has an exit pointing to us
+				# Add reverse connection using the other room's name as exit name
+				var reverse_exit_name: String = room.name.to_lower()
+				# Don't overwrite if we already have an exit with that name
+				if not all_exits.has(reverse_exit_name):
+					all_exits[reverse_exit_name] = room
+
+	return all_exits
 
 
 func has_exit(exit_name: String) -> bool:
-	"""Check if an exit exists.
+	"""Check if an exit exists (bidirectional).
 
 	Args:
 		exit_name: Name of the exit to check
 
 	Returns:
 		True if the exit exists, false otherwise
+
+	Notes:
+		Checks both locally stored exits and reverse connections from other rooms
 	"""
-	return exit_name.to_lower() in exits
+	# Check local exits first (fast path)
+	if exit_name.to_lower() in exits:
+		return true
+
+	# Check if any room has an exit pointing to us with a matching name
+	var all_exits: Dictionary = get_exits()
+	return exit_name.to_lower() in all_exits
 
 
 func enhance_description(base_description: String) -> String:
-	"""Add exit information to the location's description.
+	"""Add exit information to the location's description (bidirectional).
 
 	Args:
 		base_description: The location's base description
 
 	Returns:
 		Enhanced description with exit list appended inline
+
+	Notes:
+		Uses get_exits() to include both local and reverse connections
 	"""
 	var desc = base_description
 
+	# Get all exits (includes bidirectional)
+	var all_exits: Dictionary = get_exits()
+
 	# Add exit information inline
-	if exits.size() > 0:
+	if all_exits.size() > 0:
 		desc += " Exits: "
 		var exit_names: Array[String] = []
-		for exit_name in exits.keys():
+		for exit_name in all_exits.keys():
 			exit_names.append(exit_name)
 		desc += ", ".join(exit_names) + "."
 	else:

@@ -1244,10 +1244,11 @@ func _cmd_rooms(_args: Array) -> Dictionary:
 
 
 func _cmd_dig(args: Array) -> Dictionary:
-	"""@DIG command - Create a new room (builder command).
+	"""@DIG command - Create a new room and auto-connect it (builder command).
 
-	Creates a new WorldObject with a LocationComponent, ready to be
-	connected via exits.
+	Creates a new WorldObject with a LocationComponent and automatically
+	creates a bidirectional exit from the current location to the new room.
+	The exit is named after the new room.
 
 	Args:
 		args: Array of words for the room name (joined with spaces)
@@ -1255,13 +1256,21 @@ func _cmd_dig(args: Array) -> Dictionary:
 	Returns:
 		Dictionary with:
 		- success (bool): True if room was created
-		- message (String): Confirmation with room name and ID
+		- message (String): Confirmation with room name, ID, and exit info
 
 	Notes:
-		This is a builder/admin command for world construction
+		This is a builder/admin command for world construction.
+		Automatically creates an exit named after the new room.
 	"""
 	if args.size() == 0:
 		return {"success": false, "message": "Usage: @dig <room name>"}
+
+	if current_location == null:
+		return {"success": false, "message": "You must be in a location to dig a new room."}
+
+	var current_loc_comp: LocationComponent = current_location.get_component("location")
+	if current_loc_comp == null:
+		return {"success": false, "message": "Your current location cannot have exits."}
 
 	var room_name: String = " ".join(args)
 
@@ -1270,26 +1279,40 @@ func _cmd_dig(args: Array) -> Dictionary:
 	var loc_comp: LocationComponent = LocationComponent.new()
 	new_room.add_component("location", loc_comp)
 
+	# Automatically create exit from current location to new room
+	# Exit name is the new room's name (lowercase)
+	var exit_name: String = room_name.to_lower()
+	current_loc_comp.add_exit(exit_name, new_room)
+
 	# Broadcast creation event to current location
-	if current_location:
-		EventWeaver.broadcast_to_location(current_location, {
-			"type": "building",
-			"actor": owner,
-			"action": "creates a room",
-			"target": new_room,
-			"message": "%s digs a new room: %s" % [owner.name, new_room.name]
-		})
+	EventWeaver.broadcast_to_location(current_location, {
+		"type": "building",
+		"actor": owner,
+		"action": "creates a room",
+		"target": new_room,
+		"message": "%s digs a new room: %s" % [owner.name, new_room.name]
+	})
 
 	return {
 		"success": true,
-		"message": "Created room: %s [%s]\nUse @exit to connect it to other rooms." % [new_room.name, new_room.id]
+		"message": "Created room: %s [%s]\nAuto-created exit '%s' from %s.\nBidirectional connection established - you can now go '%s' and return via '%s'." % [
+			new_room.name,
+			new_room.id,
+			exit_name,
+			current_location.name,
+			exit_name,
+			current_location.name.to_lower()
+		]
 	}
 
 
 func _cmd_exit(args: Array) -> Dictionary:
 	"""@EXIT command - Create an exit between rooms (builder command).
 
-	Creates a one-way exit from the current location to a target room.
+	Creates an exit from the current location to a target room. The connection
+	automatically works bidirectionally - if room A has an exit to room B, then
+	room B will automatically show an exit back to room A (named after room A).
+
 	The destination can be specified by name or #ID.
 
 	Args:
@@ -1302,8 +1325,8 @@ func _cmd_exit(args: Array) -> Dictionary:
 		- message (String): Confirmation with exit and destination details
 
 	Notes:
-		This is a builder/admin command. Creates one-way exits only.
-		Use twice to create bidirectional connections.
+		This is a builder/admin command. Exits automatically work bidirectionally.
+		Only need to create exits once - the reverse connection is automatic.
 	"""
 	if args.size() < 3:
 		return {"success": false, "message": "Usage: @exit <exit name> to <destination room name or #ID>"}
@@ -1372,7 +1395,7 @@ func _cmd_exit(args: Array) -> Dictionary:
 
 	return {
 		"success": true,
-		"message": "Created exit: %s → %s [%s]" % [exit_name, destination.name, destination.id]
+		"message": "Created exit: %s → %s [%s]\nReverse exit automatically created: %s can now be reached from %s." % [exit_name, destination.name, destination.id, current_location.name, destination.name]
 	}
 
 

@@ -141,7 +141,7 @@ const COMMANDS = {
 		"aliases": [],
 		"category": "building",
 		"syntax": "@dig <room name>",
-		"description": "Create a new room (builder command)",
+		"description": "Create a new room with automatic bidirectional connection",
 		"example": "@dig Secret Library",
 		"admin": true
 	},
@@ -149,7 +149,7 @@ const COMMANDS = {
 		"aliases": [],
 		"category": "building",
 		"syntax": "@exit <exit name> to <destination>",
-		"description": "Create an exit between rooms (builder command)",
+		"description": "Create a bidirectional exit between rooms",
 		"example": "@exit north to Garden",
 		"admin": true
 	},
