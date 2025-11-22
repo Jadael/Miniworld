@@ -401,9 +401,11 @@ func create_room(room_name: String, room_description: String = "") -> WorldObjec
 func save_world_to_vault() -> bool:
 	"""Save entire world to markdown vault.
 
+	NEW: Agents are self-contained and portable.
+
 	Creates/updates:
 	- vault/world/locations/<name>.md for each room
-	- vault/world/objects/characters/<name>.md for each character
+	- vault/agents/<name>/agent.md for each character (NEW)
 	- vault/world/world_state.md for snapshot
 
 	Returns:
@@ -412,6 +414,7 @@ func save_world_to_vault() -> bool:
 	Notes:
 		Uses WorldObject.to_markdown() for serialization
 		Skips nexus and root_room (foundation objects)
+		Agents are now saved to their own folders for portability
 	"""
 	var success: bool = true
 
@@ -429,13 +432,15 @@ func save_world_to_vault() -> bool:
 			success = false
 
 	# Save all characters (objects with actor component)
+	# NEW: Agents saved to vault/agents/{name}/agent.md (self-contained)
 	var actors: Array[WorldObject] = get_objects_with_component("actor")
 	print("WorldKeeper: Found %d actors to save" % actors.size())
 
 	for obj in actors:
 		print("WorldKeeper: Saving actor: %s (ID: %s)" % [obj.name, obj.id])
-		var filename: String = MarkdownVault.sanitize_filename(obj.name) + ".md"
-		var path: String = MarkdownVault.OBJECTS_PATH + "/characters/" + filename
+		var filename: String = "agent.md"
+		var agent_folder: String = MarkdownVault.AGENTS_PATH + "/" + MarkdownVault.sanitize_filename(obj.name)
+		var path: String = agent_folder + "/" + filename
 		var content: String = obj.to_markdown()
 
 		print("WorldKeeper: Writing to path: %s" % path)
@@ -465,11 +470,18 @@ func save_world_to_vault() -> bool:
 func load_world_from_vault() -> bool:
 	"""Load world from markdown vault.
 
+	NEW: Agents loaded from self-contained folders with location priority.
+
 	Reads all markdown files and reconstructs the world.
 	Three-pass loading:
 	1. Create all location objects
-	2. Create all character objects
-	3. Restore relationships (parents, locations)
+	2. Create all character objects from vault/agents/{name}/agent.md
+	3. Restore relationships using priority-based location resolution
+
+	Location Priority System:
+	1. world_state.md location (if present) - AUTHORITATIVE
+	2. agent.md location (if room exists) - AGENT'S PREFERENCE
+	3. root_room - DEFAULT FALLBACK
 
 	Returns:
 		true if load succeeded, false on error
@@ -477,6 +489,7 @@ func load_world_from_vault() -> bool:
 	Notes:
 		Preserves nexus and root_room (foundation objects)
 		Components must be restored based on markdown metadata
+		Falls back to legacy vault/world/objects/characters/*.md if agent.md not found
 	"""
 	print("WorldKeeper: Loading world from vault...")
 
@@ -495,17 +508,26 @@ func load_world_from_vault() -> bool:
 
 		_load_location_from_markdown(content)
 
-	# Pass 2: Load all character files
-	var char_files: Array[String] = MarkdownVault.list_files(MarkdownVault.OBJECTS_PATH + "/characters", ".md")
-	for filename in char_files:
-		var path: String = MarkdownVault.OBJECTS_PATH + "/characters/" + filename
-		var content: String = MarkdownVault.read_file(path)
+	# Pass 2: Load all character files from vault/agents/{name}/agent.md
+	# NEW: Agents are self-contained in their own folders
+	var agent_folders: Array[String] = MarkdownVault.list_directories(MarkdownVault.AGENTS_PATH)
+	var char_count: int = 0
+
+	for agent_name in agent_folders:
+		var agent_path: String = MarkdownVault.AGENTS_PATH + "/" + agent_name + "/agent.md"
+		var content: String = MarkdownVault.read_file(agent_path)
 
 		if content.is_empty():
-			push_warning("WorldKeeper: Empty or missing character file: %s" % filename)
-			continue
+			# Try legacy location for backward compatibility
+			var legacy_path: String = MarkdownVault.OBJECTS_PATH + "/characters/" + agent_name + ".md"
+			content = MarkdownVault.read_file(legacy_path)
+
+			if content.is_empty():
+				push_warning("WorldKeeper: No agent.md found for: %s" % agent_name)
+				continue
 
 		_load_character_from_markdown(content)
+		char_count += 1
 
 	# Pass 3: Restore relationships from world_state.md (if it exists)
 	_restore_world_state()
@@ -513,7 +535,7 @@ func load_world_from_vault() -> bool:
 	world_loaded.emit()
 	print("WorldKeeper: World loaded from vault (%d locations, %d characters)" % [
 		location_files.size(),
-		char_files.size()
+		char_count
 	])
 
 	return true
@@ -732,11 +754,15 @@ func _resolve_all_exits() -> void:
 
 
 func _restore_character_locations() -> void:
-	"""Restore character locations from their markdown frontmatter.
+	"""Restore character locations using priority-based resolution.
 
-	Reads the location metadata from each character's markdown file and
-	moves them to the appropriate room. Falls back to root_room if the
-	location cannot be found.
+	NEW: Location priority system (world is source of truth):
+	1. world_state.md location (if character in table) - AUTHORITATIVE
+	2. agent.md location (if room exists) - AGENT'S PREFERENCE
+	3. root_room - DEFAULT FALLBACK
+
+	This allows agents to be portable (they store their own location),
+	while the world can override when authoritative placement is needed.
 
 	Notes:
 		Called by _restore_world_state() after exits are resolved
@@ -748,42 +774,108 @@ func _restore_character_locations() -> void:
 		room_by_name[room.name] = room
 		print("[WorldKeeper DEBUG] Room available: %s (ID: %s)" % [room.name, room.id])
 
+	# Parse world_state.md to get authoritative location overrides
+	var world_locations: Dictionary = _parse_world_state_locations()
+
 	# Restore location for each character with actor component
 	for character in get_objects_with_component("actor"):
 		print("[WorldKeeper DEBUG] Restoring location for: %s (ID: %s)" % [character.name, character.id])
 
-		# Re-read character markdown to get location metadata
-		var filename: String = MarkdownVault.sanitize_filename(character.name) + ".md"
-		var path: String = MarkdownVault.OBJECTS_PATH + "/characters/" + filename
-		var content: String = MarkdownVault.read_file(path)
+		var final_location: WorldObject = null
 
-		if content.is_empty():
-			push_warning("WorldKeeper: Cannot find character file for %s, defaulting to root_room" % character.name)
-			character.move_to(root_room)
+		# Priority 1: Check world_state.md for authoritative location
+		if world_locations.has(character.name):
+			var world_room_name: String = world_locations[character.name]
+			if room_by_name.has(world_room_name):
+				final_location = room_by_name[world_room_name]
+				print("WorldKeeper: Using world_state location for %s: %s (AUTHORITATIVE)" % [character.name, world_room_name])
+
+		# Priority 2: Use agent's preferred location from agent.md
+		if final_location == null:
+			var agent_path: String = MarkdownVault.AGENTS_PATH + "/" + MarkdownVault.sanitize_filename(character.name) + "/agent.md"
+			var content: String = MarkdownVault.read_file(agent_path)
+
+			if not content.is_empty():
+				var parsed: Dictionary = MarkdownVault.parse_frontmatter(content)
+				var location_str: String = parsed.frontmatter.get("location", "")
+
+				if location_str.begins_with("[[") and location_str.ends_with("]]"):
+					var room_name: String = location_str.substr(2, location_str.length() - 4)
+					if room_by_name.has(room_name):
+						final_location = room_by_name[room_name]
+						print("WorldKeeper: Using agent's preferred location for %s: %s" % [character.name, room_name])
+					else:
+						print("WorldKeeper: Agent's preferred location '%s' not found for %s" % [room_name, character.name])
+
+		# Priority 3: Default to root_room
+		if final_location == null:
+			final_location = root_room
+			print("WorldKeeper: Using default location (root_room) for %s" % character.name)
+
+		character.move_to(final_location)
+
+
+func _parse_world_state_locations() -> Dictionary:
+	"""Parse world_state.md to extract authoritative character locations.
+
+	Returns:
+		Dictionary mapping character names to room names
+		Format: {"Character Name": "Room Name"}
+
+	Notes:
+		Parses the Character Locations table from world_state.md
+		Returns empty dict if file doesn't exist or table not found
+	"""
+	var locations: Dictionary = {}
+	var state_path: String = MarkdownVault.WORLD_PATH + "/world_state.md"
+	var content: String = MarkdownVault.read_file(state_path)
+
+	if content.is_empty():
+		return locations
+
+	# Parse the Character Locations table
+	# Format:
+	# | Character | Location |
+	# |-----------|----------|
+	# | [[Name]] | [[Room]] |
+
+	var in_table: bool = false
+	var lines: Array = content.split("\n")
+
+	for line in lines:
+		line = line.strip_edges()
+
+		# Detect table start
+		if line.begins_with("| Character | Location |"):
+			in_table = true
 			continue
 
-		# Parse frontmatter to get location field
-		var parsed: Dictionary = MarkdownVault.parse_frontmatter(content)
-		var location_str: String = parsed.frontmatter.get("location", "")
-		print("[WorldKeeper DEBUG] Location string from file: '%s'" % location_str)
+		# Skip separator row
+		if in_table and line.begins_with("|---"):
+			continue
 
-		# Parse [[Room Name]] format
-		if location_str.begins_with("[[") and location_str.ends_with("]]"):
-			var room_name: String = location_str.substr(2, location_str.length() - 4)
-			print("[WorldKeeper DEBUG] Parsed room name: '%s'" % room_name)
+		# Parse table rows
+		if in_table and line.begins_with("|"):
+			var parts: Array = line.split("|")
+			if parts.size() >= 3:
+				var char_name: String = parts[1].strip_edges()
+				var room_name: String = parts[2].strip_edges()
 
-			if room_by_name.has(room_name):
-				character.move_to(room_by_name[room_name])
-				print("WorldKeeper: Restored %s to %s" % [character.name, room_name])
-			else:
-				print("[WorldKeeper DEBUG] room_by_name.has('%s') = false" % room_name)
-				print("[WorldKeeper DEBUG] Available rooms: %s" % str(room_by_name.keys()))
-				push_warning("WorldKeeper: Cannot find room '%s' for character %s, defaulting to root_room" % [room_name, character.name])
-				character.move_to(root_room)
-		else:
-			# No valid location specified, use root_room as fallback
-			print("WorldKeeper: No location specified for %s (got: '%s'), defaulting to root_room" % [character.name, location_str])
-			character.move_to(root_room)
+				# Remove [[ ]] wiki-link syntax
+				if char_name.begins_with("[[") and char_name.ends_with("]]"):
+					char_name = char_name.substr(2, char_name.length() - 4)
+				if room_name.begins_with("[[") and room_name.ends_with("]]"):
+					room_name = room_name.substr(2, room_name.length() - 4)
+
+				if not char_name.is_empty() and not room_name.is_empty():
+					locations[char_name] = room_name
+
+		# Table ends at first non-table line after table starts
+		elif in_table:
+			break
+
+	print("WorldKeeper: Parsed %d character locations from world_state.md" % locations.size())
+	return locations
 
 
 ## Legacy JSON Persistence (deprecated, use vault methods)

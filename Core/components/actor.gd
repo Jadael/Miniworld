@@ -342,6 +342,8 @@ func execute_command(command: String, args: Array = [], reason: String = "", tas
 			result = _cmd_reload_text(args)
 		"@show-text":
 			result = _cmd_show_text(args)
+		"@migrate-agents":
+			result = _cmd_migrate_agents(args)
 		"@show-config":
 			result = _cmd_show_config(args)
 		"@memory-status":
@@ -2164,6 +2166,71 @@ func _cmd_show_text(args: Array) -> Dictionary:
 		message += ", ".join(vars) + "\n"
 
 	return {"success": true, "message": message}
+
+
+func _cmd_migrate_agents(_args: Array) -> Dictionary:
+	"""@MIGRATE-AGENTS command - Migrate character files to new self-contained agent structure.
+
+	Migrates existing vault/world/objects/characters/*.md files to vault/agents/{name}/agent.md.
+	This is a one-time migration to support the new portable agent architecture.
+
+	Syntax: @migrate-agents
+
+	Returns:
+		Dictionary with success status and migration report
+
+	Notes:
+		- Preserves all existing data
+		- Creates agent folders if needed
+		- Skips agents already migrated
+		- Does NOT delete old files (manual cleanup required)
+	"""
+	var legacy_path: String = MarkdownVault.OBJECTS_PATH + "/characters"
+	var legacy_files: Array[String] = MarkdownVault.list_files(legacy_path, ".md")
+
+	if legacy_files.is_empty():
+		return {"success": true, "message": "No legacy character files found. All agents already migrated!"}
+
+	var migrated: int = 0
+	var skipped: int = 0
+	var errors: Array[String] = []
+
+	for filename in legacy_files:
+		var agent_name: String = filename.replace(".md", "")
+		var old_path: String = legacy_path + "/" + filename
+		var new_folder: String = MarkdownVault.AGENTS_PATH + "/" + MarkdownVault.sanitize_filename(agent_name)
+		var new_path: String = new_folder + "/agent.md"
+
+		# Skip if already migrated
+		if MarkdownVault.file_exists(new_path):
+			skipped += 1
+			continue
+
+		# Read old file
+		var content: String = MarkdownVault.read_file(old_path)
+		if content.is_empty():
+			errors.append("Failed to read: " + filename)
+			continue
+
+		# Write to new location
+		if MarkdownVault.write_file(new_path, content):
+			migrated += 1
+		else:
+			errors.append("Failed to write: " + new_path)
+
+	var message: String = "═══ Agent Migration Complete ═══\n\n"
+	message += "Migrated: %d agents\n" % migrated
+	message += "Skipped: %d (already migrated)\n" % skipped
+
+	if errors.size() > 0:
+		message += "\nErrors (%d):\n" % errors.size()
+		for error in errors:
+			message += "  - %s\n" % error
+
+	message += "\nNOTE: Old files remain in vault/world/objects/characters/\n"
+	message += "You can safely delete them after verifying the migration.\n"
+
+	return {"success": errors.is_empty(), "message": message}
 
 
 func _cmd_show_config(args: Array) -> Dictionary:

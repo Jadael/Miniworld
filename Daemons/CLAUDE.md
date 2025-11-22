@@ -83,15 +83,39 @@ Daemons are autoloaded singleton managers that provide global services to the Mi
 ### MarkdownVault
 **Purpose**: World persistence to human-readable markdown files
 
+**NEW: Self-Contained Agent Architecture**
+
+**Vault Structure**:
+- `vault/agents/{name}/agent.md` - Agent definition (portable, self-contained)
+- `vault/agents/{name}/memories/` - Agent's memory files
+- `vault/agents/{name}/notes/` - Agent's persistent notes
+- `vault/agents/{name}/summaries/` - Memory compaction summaries
+- `vault/world/locations/{name}.md` - Room definitions
+- `vault/world/world_state.md` - World snapshot with authoritative locations
+
+**Location Priority System**:
+Agents store their own preferred location in `agent.md`, but the world can override:
+1. **world_state.md** (if character in table) - AUTHORITATIVE
+2. **agent.md** (if room exists) - AGENT'S PREFERENCE
+3. **root_room** - DEFAULT FALLBACK
+
+This allows agents to be portable (complete self-contained folders) while the world remains the source of truth for actual placement.
+
 **Key Features**:
-- Saves agents as `Agent Name.md` with frontmatter metadata
-- Saves rooms as `Room Name.md` with YAML frontmatter
-- Loads world state on startup
+- Agents are fully portable - copy folder to move/backup agent
+- Agents can be transferred between worlds
+- World state is optional overlay, not required storage
 - Obsidian-compatible format for human editing
+- Backward compatible with legacy vault/world/objects/characters/*.md
 
 **Key Functions**:
 - `save_world()` - Serializes all WorldObjects to vault
-- `load_world()` - Deserializes vault into WorldObjects
+- `load_world()` - Deserializes vault into WorldObjects with location priority
+- `list_directories(path)` - List subdirectories (for agent folder enumeration)
+- `file_exists(path)` - Check if file exists
+
+**Migration**:
+Use `@migrate-agents` command to migrate existing character files to new structure
 
 ### MemoryBudget
 **Purpose**: Dynamic memory allocation for agent memories based on system resources

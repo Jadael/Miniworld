@@ -133,6 +133,17 @@ func get_profile() -> String:
 ```
 **Naming**: `component.setting` (e.g., `thinker.profile`, `thinker.think_interval`)
 
+### Self-Contained Agent Architecture
+**Pattern**: Agents are fully portable, stored in self-contained folders
+- **Structure**: `vault/agents/{name}/` contains agent.md, memories/, notes/, summaries/
+- **Portability**: Copy entire folder to backup/transfer agent between worlds
+- **Location Priority**: World state overrides agent preference when present
+  1. `world_state.md` location (if in table) - AUTHORITATIVE
+  2. `agent.md` location (if room exists) - AGENT'S PREFERENCE
+  3. root_room - DEFAULT FALLBACK
+- **Migration**: `@migrate-agents` command migrates legacy character files
+- **Benefits**: Easy backups, agent transfers, world-independent agent development
+
 ### Self-Aware Agent Commands
 Actors view/modify own configuration:
 - `@my-profile`, `@my-description` - View self

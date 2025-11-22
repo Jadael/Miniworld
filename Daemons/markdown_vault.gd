@@ -430,6 +430,46 @@ func list_files(directory: String, extension: String = "") -> Array[String]:
 	return files
 
 
+func list_directories(directory: String) -> Array[String]:
+	"""List all subdirectories in a vault directory.
+
+	Args:
+		directory: Path relative to user:// (e.g., "vault/agents")
+
+	Returns:
+		Array of directory names (not full paths)
+	"""
+	var directories: Array[String] = []
+	var dir = DirAccess.open("user://" + directory)
+
+	if not dir:
+		return directories
+
+	dir.list_dir_begin()
+	var item_name = dir.get_next()
+
+	while item_name != "":
+		if dir.current_is_dir() and item_name != "." and item_name != "..":
+			directories.append(item_name)
+		item_name = dir.get_next()
+
+	dir.list_dir_end()
+
+	return directories
+
+
+func file_exists(file_path: String) -> bool:
+	"""Check if a file exists in the vault.
+
+	Args:
+		file_path: Path relative to user:// (e.g., "vault/agents/Coyote/agent.md")
+
+	Returns:
+		true if file exists, false otherwise
+	"""
+	return FileAccess.file_exists("user://" + file_path)
+
+
 func _cache_file(file_path: String, content: String) -> void:
 	"""Add a file to the cache.
 
