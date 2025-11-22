@@ -5,6 +5,12 @@
 ## - Make decisions based on profile and memories
 ## - Execute commands through Actor component using MOO-style syntax
 ##
+## Configuration via Properties:
+## - thinker.profile: Personality and behavior description for LLM
+## - thinker.think_interval: Seconds between autonomous decision cycles
+## - thinker.memory_count: Number of memories included in prompts (default from ai_defaults.md)
+## - thinker.prompt_template: Template variant to use (default: "default")
+##
 ## Memory Context Engineering:
 ## - Uses cascading temporal summaries (Anthropic context engineering pattern)
 ## - Immediate window: N most recent memories in full detail
@@ -99,6 +105,12 @@ func _on_added(obj: WorldObject) -> void:
 		owner.set_property("thinker.think_interval", _deprecated_think_interval)
 	if not owner.has_property("thinker.prompt_template"):
 		owner.set_property("thinker.prompt_template", "default")
+	if not owner.has_property("thinker.memory_count"):
+		# Default from config, or fallback to 24
+		var default_count: int = 24
+		if TextManager:
+			default_count = TextManager.get_config("prompt_memory_limit", 24)
+		owner.set_property("thinker.memory_count", default_count)
 
 	# Start thinking after one full interval
 	think_timer = get_think_interval()
@@ -152,6 +164,35 @@ func get_think_interval() -> float:
 	if owner and owner.has_property("thinker.think_interval"):
 		return owner.get_property("thinker.think_interval")
 	return _deprecated_think_interval
+
+
+func set_memory_count(count: int) -> void:
+	"""Set the number of memories to include in prompts.
+
+	Controls how many recent memories are included in the LLM prompt context.
+
+	Args:
+		count: Number of memories (must be positive)
+	"""
+	if count <= 0:
+		push_warning("[Thinker] Invalid memory count: %d, must be positive" % count)
+		return
+	if owner:
+		owner.set_property("thinker.memory_count", count)
+
+
+func get_memory_count() -> int:
+	"""Get the number of memories to include in prompts.
+
+	Returns:
+		The memory count from properties, or global config default
+	"""
+	if owner and owner.has_property("thinker.memory_count"):
+		return owner.get_property("thinker.memory_count")
+	# Fallback to global config
+	if TextManager:
+		return TextManager.get_config("prompt_memory_limit", 24)
+	return 24
 
 
 func process(delta: float) -> void:
@@ -275,8 +316,9 @@ func _build_context() -> Dictionary:
 		var memory_comp: MemoryComponent = owner.get_component("memory") as MemoryComponent
 
 		# Get memories with cascading temporal summaries
-		# Using 64 immediate memories to provide rich context for decision-making
-		var memory_context: Dictionary = memory_comp.get_recent_context(64)
+		# Memory count is configurable per-agent via thinker.memory_count property
+		var memory_count: int = get_memory_count()
+		var memory_context: Dictionary = memory_comp.get_recent_context(memory_count)
 		context.recent_memories = memory_context.immediate
 		context.recent_summary = memory_context.recent_summary
 		context.longterm_summary = memory_context.longterm_summary

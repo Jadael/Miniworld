@@ -2336,8 +2336,8 @@ func _cmd_bootstrap_summaries(args: Array) -> Dictionary:
 			]
 		}
 
-	# Trigger bootstrap
-	memory_comp.bootstrap_summaries_async(func():
+	# Trigger bootstrap (generate both recent and longterm summaries)
+	memory_comp.bootstrap_summaries_async(true, true, func():
 		print("[Actor] %s: Summary bootstrap completed" % target_agent.name)
 	)
 

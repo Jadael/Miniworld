@@ -53,7 +53,11 @@ func _cmd_say(args: Array) -> Dictionary:
 All command messages are loaded from `user://vault/text/commands/*.md` and can be edited in-game using admin commands (`@reload-text`, `@show-text`)
 
 ### ThinkerComponent
-- Uses property-based configuration (`thinker.profile`, `thinker.think_interval`)
+- Uses property-based configuration:
+  - `thinker.profile` - AI personality and behavior description
+  - `thinker.think_interval` - Seconds between autonomous decisions
+  - `thinker.memory_count` - Number of memories in prompt (default from ai_defaults.md)
+  - `thinker.prompt_template` - Template variant (default: "default")
 - Implements just-in-time prompt generation (builds fresh context when LLM ready)
 - Queues tasks with Shoggoth daemon for async LLM inference
 - Executes decided commands through ActorComponent
