@@ -1940,43 +1940,35 @@ func recall_notes_instant(query: String) -> String:
 			most_recent_timestamp = created
 			most_recent_title = title
 
-	# Show most recent note first (convenience)
-	if most_recent_title != "":
-		var recent_note: Dictionary = notes[most_recent_title]
-		results += "MOST RECENTLY EDITED NOTE:\n"
-		results += "**%s**\n%s\n\n" % [most_recent_title, recent_note.content]
-
-	# Show all note titles for reference
-	results += "ALL NOTES (%d total):\n" % notes.size()
-	var titles: Array[String] = []
-	for title in notes.keys():
-		titles.append(title)
-	titles.sort()
-	for title in titles:
-		results += "- %s\n" % title
-	results += "\n"
-
-	# Keyword search (simple case-insensitive matching)
+	# If a query was provided, do keyword search
 	var query_lower: String = query.to_lower()
-	var matches: Array[String] = []
+	if query != "":
+		var matches: Array[String] = []
 
-	for title in notes.keys():
-		var note_data: Dictionary = notes[title]
-		var title_lower: String = title.to_lower()
-		var content_lower: String = note_data.content.to_lower()
-
-		# Check if query matches title or content
-		if query_lower in title_lower or query_lower in content_lower:
-			matches.append(title)
-
-	# Show keyword matches if any
-	if matches.size() > 0:
-		results += "NOTES MATCHING '%s' (%d found):\n" % [query, matches.size()]
-		for title in matches:
+		for title in notes.keys():
 			var note_data: Dictionary = notes[title]
-			results += "**%s**\n%s\n\n" % [title, note_data.content]
-	elif query != "":
-		results += "KEYWORD SEARCH\nNo notes contain '%s'. Check the list above for available notes.\n" % query
+			var title_lower: String = title.to_lower()
+			var content_lower: String = note_data.content.to_lower()
+
+			# Check if query matches title or content
+			if query_lower in title_lower or query_lower in content_lower:
+				matches.append(title)
+
+		# Show keyword matches if any
+		if matches.size() > 0:
+			results += "NOTES MATCHING '%s' (%d found):\n" % [query, matches.size()]
+			for title in matches:
+				var note_data: Dictionary = notes[title]
+				results += "**%s**\n%s\n\n" % [title, note_data.content]
+		else:
+			results += "No notes contain '%s'. You have %d notes total.\n" % [query, notes.size()]
+	else:
+		# No query - just show most recent note
+		if most_recent_title != "":
+			var recent_note: Dictionary = notes[most_recent_title]
+			results += "MOST RECENTLY EDITED NOTE:\n"
+			results += "**%s**\n%s\n\n" % [most_recent_title, recent_note.content]
+			results += "(%d notes total)\n" % notes.size()
 
 	return results
 

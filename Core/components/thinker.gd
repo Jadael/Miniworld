@@ -342,7 +342,7 @@ func _build_context() -> Dictionary:
 			context.location_name,
 			occupants_typed,
 			"",  # no recent_events context for now
-			2  # max 2 relevant summaries
+			3  # max 3 relevant summaries
 		)
 
 		# Get recent reasonings to display separately from memories
@@ -406,26 +406,52 @@ func _construct_prompt(context: Dictionary) -> String:
 	prompt += "IDENTITY:\n"
 	prompt += "%s\n\n" % context.profile
 
-	# Show most recent memories at the top for immediate context
-	# Track content for deduplication when we show full memory list later
+	# Show recent memories at the top for high-attention placement
+	# This is duplicated at the bottom to ensure recent context appears in BOTH high-attention zones
 	var notes_shown_in_memories: Array[String] = []
 	if context.recent_memories.size() > 0:
-		prompt += "WHAT JUST HAPPENED (most recent first):\n"
-		# Show last 3-5 memories for immediate context
-		# Memories are in chronological order, so we take from the END for most recent
-		var immediate_count: int = min(5, context.recent_memories.size())
-		var start_idx: int = context.recent_memories.size() - immediate_count
-		for i in range(start_idx, context.recent_memories.size()):
-			var memory: Dictionary = context.recent_memories[context.recent_memories.size() - 1 - (i - start_idx)]
+		prompt += "RECENT MEMORY (chronological):\n\n"
+
+		var last_content: String = ""
+		var repeat_count: int = 0
+
+		for i in range(context.recent_memories.size()):
+			var memory: Dictionary = context.recent_memories[i]
 			var mem_dict: Dictionary = memory as Dictionary
 			var content: String = mem_dict.content
-			prompt += "- %s\n" % content
+			var metadata: Dictionary = mem_dict.get("metadata", {})
+			var is_failed: bool = metadata.get("is_failed", false)
+
+			# For failed commands, show the enhanced explanation (includes context of failure)
+			# For successful commands, show only the narrative result (not the command echo)
+			# This prevents the model from learning to echo previous patterns
+			var display_content: String = content
+
+			# Check for consecutive repetition
+			if content == last_content and not is_failed:
+				repeat_count += 1
+				# Skip displaying - will show count at end
+				continue
+			else:
+				# Display any pending repetition summary
+				if repeat_count > 0:
+					prompt += " (repeated %dx more)\n" % repeat_count
+					repeat_count = 0
+
+				# Display current memory
+				prompt += "%s\n" % display_content
+				last_content = content
 
 			# Track note titles to avoid duplication
 			if content.contains("You saved a note titled"):
 				var parts: PackedStringArray = content.split("\"")
 				if parts.size() >= 2:
 					notes_shown_in_memories.append(parts[1])
+
+		# Handle any trailing repetition
+		if repeat_count > 0:
+			prompt += " (repeated %dx more)\n" % repeat_count
+
 		prompt += "\n"
 
 	# Available command reference early for context
@@ -469,34 +495,70 @@ func _construct_prompt(context: Dictionary) -> String:
 			notes_shown_in_memories.append(note_title)
 		prompt += "\n"
 
-	# Relevant memory summaries from RAG (experiential context)
-	if context.has("relevant_summaries") and context.relevant_summaries.size() > 0:
-		prompt += "RELATED PAST EXPERIENCES:\n\n"
-		for summary_data in context.relevant_summaries:
-			var summary_dict: Dictionary = summary_data as Dictionary
-			var summary_text: String = summary_dict.get("summary_text", "")
-			var memory_range: String = summary_dict.get("memory_range", "")
-			prompt += "- %s (%s)\n" % [summary_text, memory_range]
-		prompt += "\n"
-
 	# Multi-scale memory context (cascading temporal summaries)
 	# Long-term summary (oldest compressed memories)
 	if context.has("longterm_summary") and context.longterm_summary != "":
 		prompt += "LONG TERM MEMORY SUMMARY:\n\n"
 		prompt += "%s\n\n" % context.longterm_summary
 
-	# Recent summary (memories that aged out of immediate window)
+	# Mid-term summary (memories that aged out of immediate window but not yet long-term)
 	if context.has("recent_summary") and context.recent_summary != "":
 		prompt += "MID TERM MEMORY SUMMARY:\n\n"
 		prompt += "%s\n\n" % context.recent_summary
 
+	# Relevant memory summaries from RAG (experiential context)
+	# Filter out summaries that duplicate content already shown in mid-term or notes
+	if context.has("relevant_summaries") and context.relevant_summaries.size() > 0:
+		var unique_summaries: Array[Dictionary] = []
+		var seen_content: Array[String] = []
+
+		# Track what we've already shown
+		if context.has("recent_summary") and context.recent_summary != "":
+			seen_content.append(context.recent_summary.to_lower().strip_edges())
+		if context.has("longterm_summary") and context.longterm_summary != "":
+			seen_content.append(context.longterm_summary.to_lower().strip_edges())
+
+		# Track note content we've shown
+		if context.has("relevant_notes"):
+			for note_data in context.relevant_notes:
+				var note_dict: Dictionary = note_data as Dictionary
+				var note_content: String = note_dict.get("content", "")
+				seen_content.append(note_content.to_lower().strip_edges())
+
+		# Filter out duplicate summaries
+		for summary_data in context.relevant_summaries:
+			var summary_dict: Dictionary = summary_data as Dictionary
+			var summary_text: String = summary_dict.get("summary_text", "")
+			var summary_lower: String = summary_text.to_lower().strip_edges()
+
+			# Check if this summary is substantially different from what we've seen
+			var is_duplicate: bool = false
+			for seen in seen_content:
+				# Simple duplicate check: if 80%+ of the summary appears in already-shown content
+				if seen.length() > 0 and summary_lower in seen:
+					is_duplicate = true
+					break
+
+			if not is_duplicate:
+				unique_summaries.append(summary_dict)
+				seen_content.append(summary_lower)
+
+		# Only show section if we have unique summaries
+		if unique_summaries.size() > 0:
+			prompt += "RELATED PAST EXPERIENCES:\n\n"
+			for summary_dict in unique_summaries:
+				var summary_text: String = summary_dict.get("summary_text", "")
+				var memory_range: String = summary_dict.get("memory_range", "")
+				prompt += "- %s (%s)\n" % [summary_text, memory_range]
+			prompt += "\n"
+
 	# ===== HIGH ATTENTION ZONE (End) =====
 	# Recent observations from memory - Shows narrative results only, not command echoes
-	# Moved to end for maximum attention, right before current situation
+	# Duplicated from top for maximum attention in both high-attention zones
 	# Separating commands from narrative results helps smaller models avoid echo/pattern reinforcement
 	# Memory deduplication: Collapse consecutive identical memories to prevent pattern reinforcement
 	if context.recent_memories.size() > 0:
-		prompt += "COMPLETE RECENT MEMORY (chronological):\n\n"
+		prompt += "RECENT MEMORY (chronological):\n\n"
 
 		var last_content: String = ""
 		var repeat_count: int = 0

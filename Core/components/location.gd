@@ -1,18 +1,21 @@
 ## LocationComponent: Makes a WorldObject into a room/location
 ##
 ## Objects with this component are locations (rooms) that can:
-## - Have exits to other locations
+## - Connect to other locations (rooms)
 ## - Contain other objects (characters, items, etc.)
 ## - Be navigated to/from
 ##
 ## This is the MOO equivalent of a room object. Every navigable space
 ## in Miniworld should have this component attached.
 ##
-## Bidirectional Exit System:
-## - Exits are stored unidirectionally (in one room only)
+## Automatic Bidirectional Connection System:
+## - Connections are stored once (in one room only) as WorldObject references
+## - Exit names are automatically generated from room names (canonical form)
 ## - Navigation works bidirectionally - get_exits() checks both directions
-## - If room A has exit "north" → B, then B automatically shows exit "A" back
-## - This simplifies world building - only create exits once
+## - If room A connects to B, then B automatically shows A as an exit
+## - No manual alias management - exit names derived from room titles
+## - Prevents "oubliettes" (one-way connections) - all connections are bidirectional
+## - This simplifies world building - only create connections once, no alias redundancy
 ## - Pathfinding works seamlessly with bidirectional connections
 ##
 ## Related: ActorComponent (for entities that move between locations)
@@ -21,8 +24,13 @@ extends ComponentBase
 class_name LocationComponent
 
 
-## Maps exit names to destination WorldObjects (direction -> location)
-## Keys are normalized to lowercase for case-insensitive matching
+## Set of connected rooms (WorldObject references only, no aliases)
+## Exit names are automatically generated from room names via _get_canonical_exit_name()
+var connections: Array[WorldObject] = []
+
+
+## DEPRECATED: Old exit storage format (kept for backward compatibility during migration)
+## Will be removed once all worlds migrated to connections-based system
 var exits: Dictionary = {}
 
 
@@ -46,17 +54,71 @@ func _on_removed(obj: WorldObject) -> void:
 	obj.set_flag("is_room", false)
 
 
-func add_exit(exit_name: String, destination: WorldObject) -> void:
-	"""Add an exit from this location to another.
-
-	Exit names are case-insensitive (stored as lowercase).
+func _get_canonical_exit_name(room: WorldObject) -> String:
+	"""Generate canonical exit name from room's name.
 
 	Args:
-		exit_name: Name of the exit (e.g., "north", "door", "garden")
-		destination: The WorldObject to travel to via this exit
+		room: WorldObject to generate exit name for
+
+	Returns:
+		Lowercase normalized exit name (e.g., "oobii bridge" for "OOBII Bridge")
 
 	Notes:
-		Silently fails if destination is null (with warning)
+		Canonical form is simply the room's name, lowercased and trimmed
+		This ensures consistent, predictable exit naming without manual aliases
+	"""
+	if room == null:
+		return ""
+	return room.name.to_lower().strip_edges()
+
+
+func add_connection(destination: WorldObject) -> void:
+	"""Add a connection from this location to another.
+
+	Creates automatic bidirectional connection - both rooms will show
+	exits to each other using their canonical names.
+
+	Args:
+		destination: The WorldObject to connect to
+
+	Notes:
+		- Silently fails if destination is null (with warning)
+		- Duplicate connections are automatically prevented
+		- Exit names are derived automatically from room names
+	"""
+	if destination == null:
+		push_warning("LocationComponent: Cannot add connection to null destination")
+		return
+
+	if destination == owner:
+		push_warning("LocationComponent: Cannot connect room to itself")
+		return
+
+	if destination in connections:
+		return  # Already connected
+
+	connections.append(destination)
+
+
+func remove_connection(destination: WorldObject) -> void:
+	"""Remove a connection to another location.
+
+	Args:
+		destination: The WorldObject to disconnect from
+	"""
+	var idx := connections.find(destination)
+	if idx != -1:
+		connections.remove_at(idx)
+
+
+## DEPRECATED: Legacy exit methods (for backward compatibility)
+## These delegate to the old exits dictionary during migration period
+
+func add_exit(exit_name: String, destination: WorldObject) -> void:
+	"""DEPRECATED: Use add_connection() instead.
+
+	Legacy method maintained for backward compatibility.
+	Will be removed once all code migrated to connections system.
 	"""
 	if destination == null:
 		push_warning("LocationComponent: Cannot add exit to null destination")
@@ -66,10 +128,9 @@ func add_exit(exit_name: String, destination: WorldObject) -> void:
 
 
 func remove_exit(exit_name: String) -> void:
-	"""Remove an exit from this location.
+	"""DEPRECATED: Use remove_connection() instead.
 
-	Args:
-		exit_name: Name of the exit to remove
+	Legacy method maintained for backward compatibility.
 	"""
 	exits.erase(exit_name.to_lower())
 
@@ -157,27 +218,37 @@ func get_exit(exit_name: String) -> WorldObject:
 
 
 func get_exits() -> Dictionary:
-	"""Get all exits from this location (bidirectional).
+	"""Get all exits from this location (bidirectional automatic connections).
 
 	Returns bidirectional connections by checking both:
-	1. Exits stored in this room (pointing outward)
-	2. Exits in other rooms that point to this room (reverse connections)
+	1. Connections stored in this room (pointing outward)
+	2. Connections in other rooms that point to this room (reverse connections)
+	3. Legacy exits from old format (during migration)
 
 	Returns:
 		Dictionary mapping exit names (String) to destinations (WorldObject)
 
 	Notes:
-		- If room A has exit "north" → B, then B automatically shows "A" as an exit
-		- Exit names for reverse connections are the destination room's name
-		- This simplifies world building - only need to create exits once
+		- Exit names are automatically generated from room names (canonical form)
+		- If room A connects to B, then B automatically shows "A" as an exit
+		- Prevents oubliettes - all connections are bidirectional
+		- This simplifies world building - only need to create connections once
 	"""
 	var all_exits: Dictionary = {}
 
-	# Add all locally stored exits
-	for exit_name in exits.keys():
-		all_exits[exit_name] = exits[exit_name]
+	# Add connections (new format) - generate exit names from room names
+	for destination in connections:
+		if destination != null:
+			var exit_name := _get_canonical_exit_name(destination)
+			if not exit_name.is_empty():
+				all_exits[exit_name] = destination
 
-	# Check all rooms for exits pointing back to us
+	# Add legacy exits (old format) - for backward compatibility during migration
+	for exit_name in exits.keys():
+		if not all_exits.has(exit_name):  # Don't overwrite connections
+			all_exits[exit_name] = exits[exit_name]
+
+	# Check all rooms for connections/exits pointing back to us (bidirectional)
 	var all_rooms: Array[WorldObject] = WorldKeeper.get_all_rooms()
 	for room in all_rooms:
 		if room == owner:
@@ -187,16 +258,22 @@ func get_exits() -> Dictionary:
 		if other_loc == null:
 			continue
 
-		# Check if any of their exits point to us
-		var other_exits: Dictionary = other_loc.exits  # Use .exits directly to avoid recursion
+		# Check their connections (new format)
+		for destination in other_loc.connections:
+			if destination == owner:
+				# This room connects to us - add reverse connection
+				var reverse_exit_name := _get_canonical_exit_name(room)
+				if not reverse_exit_name.is_empty() and not all_exits.has(reverse_exit_name):
+					all_exits[reverse_exit_name] = room
+
+		# Check their legacy exits (old format) - for backward compatibility
+		var other_exits: Dictionary = other_loc.exits
 		for exit_name in other_exits.keys():
 			var destination: WorldObject = other_exits[exit_name]
 			if destination == owner:
 				# This room has an exit pointing to us
-				# Add reverse connection using the other room's name as exit name
-				var reverse_exit_name: String = room.name.to_lower()
-				# Don't overwrite if we already have an exit with that name
-				if not all_exits.has(reverse_exit_name):
+				var reverse_exit_name := _get_canonical_exit_name(room)
+				if not reverse_exit_name.is_empty() and not all_exits.has(reverse_exit_name):
 					all_exits[reverse_exit_name] = room
 
 	return all_exits
@@ -277,8 +354,70 @@ func get_contents_description() -> String:
 
 ## Markdown Vault Persistence
 
+func parse_connections_from_markdown(markdown_body: String, room_by_name: Dictionary) -> void:
+	"""Parse and restore connections from markdown Connections section (new format).
+
+	Connections format:
+	## Connections
+	- [[Destination Room]]
+
+	Args:
+		markdown_body: Markdown body content containing Connections section
+		room_by_name: Dictionary mapping room names to WorldObject instances
+
+	Notes:
+		Simple list of connected rooms - no aliases, no redundancy
+		Exit names are automatically generated from room names
+	"""
+	connections.clear()
+
+	# Find the Connections section
+	if not "## Connections" in markdown_body:
+		# Fallback to old Exits format for backward compatibility
+		parse_exits_from_markdown(markdown_body, room_by_name)
+		return
+
+	var lines: Array = markdown_body.split("\n")
+	var in_connections_section: bool = false
+
+	for line in lines:
+		if line.strip_edges() == "## Connections":
+			in_connections_section = true
+			continue
+
+		if in_connections_section:
+			# Stop at next section
+			if line.begins_with("## "):
+				break
+
+			# Parse connection line: - [[Destination Room]]
+			if line.begins_with("- [["):
+				var conn_line: String = line.substr(2).strip_edges()  # Remove "- "
+
+				# Extract destination name from [[...]]
+				var dest_end: int = conn_line.find("]]")
+				if dest_end == -1:
+					continue
+
+				var dest_name: String = conn_line.substr(2, dest_end - 2).strip_edges()
+
+				# Resolve destination
+				if not room_by_name.has(dest_name):
+					push_warning("LocationComponent: Cannot resolve connection to '%s' - room not found" % dest_name)
+					continue
+
+				var dest_room: WorldObject = room_by_name[dest_name]
+
+				# Add connection (no aliases, no duplicates)
+				if dest_room not in connections:
+					connections.append(dest_room)
+
+
 func parse_exits_from_markdown(markdown_body: String, room_by_name: Dictionary) -> void:
-	"""Parse and restore exits from markdown Exits section.
+	"""DEPRECATED: Parse and restore exits from markdown Exits section (legacy format).
+
+	This method supports the old exit format during migration period.
+	New code should use parse_connections_from_markdown() instead.
 
 	Exits format:
 	## Exits

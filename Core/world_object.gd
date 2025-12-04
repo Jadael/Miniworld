@@ -555,18 +555,26 @@ func to_markdown() -> String:
 			content += "- %s\n" % component_name
 		content += "\n"
 
-	# Add exits section for LocationComponents (human-readable format)
+	# Add connections section for LocationComponents (new format)
 	if has_component("location"):
-		var loc_comp = get_component("location")
-		if loc_comp.has_method("get_exits"):
-			var location_exits: Dictionary = loc_comp.get_exits()
-			if location_exits.size() > 0:
+		var loc_comp: LocationComponent = get_component("location") as LocationComponent
+		if loc_comp:
+			# Serialize new connections format (simple list of connected rooms)
+			if loc_comp.connections.size() > 0:
+				content += "## Connections\n"
+				for destination in loc_comp.connections:
+					if destination != null:
+						content += "- [[%s]]\n" % destination.name
+				content += "\n"
+
+			# Also serialize legacy exits format for backward compatibility during migration
+			elif loc_comp.exits.size() > 0:
 				content += "## Exits\n"
 
 				# Group exits by destination for cleaner output
 				var exits_by_dest: Dictionary = {}  # destination -> [alias1, alias2, ...]
-				for exit_name in location_exits.keys():
-					var dest: WorldObject = location_exits[exit_name]
+				for exit_name in loc_comp.exits.keys():
+					var dest: WorldObject = loc_comp.exits[exit_name]
 					if dest:
 						if not exits_by_dest.has(dest.name):
 							exits_by_dest[dest.name] = []

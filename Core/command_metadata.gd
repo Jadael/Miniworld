@@ -148,9 +148,17 @@ const COMMANDS = {
 	"@exit": {
 		"aliases": [],
 		"category": "building",
-		"syntax": "@exit <exit name> to <destination>",
-		"description": "Create a bidirectional exit between rooms",
-		"example": "@exit north to Garden",
+		"syntax": "@exit to <destination>",
+		"description": "Create automatic bidirectional connection (exit names auto-generated from room names)",
+		"example": "@exit to OOBII Bridge",
+		"admin": true
+	},
+	"@migrate-connections": {
+		"aliases": [],
+		"category": "building",
+		"syntax": "@migrate-connections",
+		"description": "Migrate all rooms from old Exits format to new automatic Connections format (removes redundant aliases)",
+		"example": "@migrate-connections",
 		"admin": true
 	},
 	"@teleport": {

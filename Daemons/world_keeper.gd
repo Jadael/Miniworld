@@ -748,8 +748,11 @@ func _resolve_all_exits() -> void:
 
 		var parsed: Dictionary = MarkdownVault.parse_frontmatter(content)
 
-		# Parse exits from the Exits section
-		if loc_comp.has_method("parse_exits_from_markdown"):
+		# Parse connections from the Connections section (new format with fallback to legacy Exits)
+		if loc_comp.has_method("parse_connections_from_markdown"):
+			loc_comp.parse_connections_from_markdown(parsed.body, room_by_name)
+		elif loc_comp.has_method("parse_exits_from_markdown"):
+			# Fallback for old format (shouldn't happen, but defensive)
 			loc_comp.parse_exits_from_markdown(parsed.body, room_by_name)
 
 

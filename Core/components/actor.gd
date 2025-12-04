@@ -344,6 +344,8 @@ func execute_command(command: String, args: Array = [], reason: String = "", tas
 			result = _cmd_show_text(args)
 		"@migrate-agents":
 			result = _cmd_migrate_agents(args)
+		"@migrate-connections":
+			result = _cmd_migrate_connections(args)
 		"@show-config":
 			result = _cmd_show_config(args)
 		"@memory-status":
@@ -1311,49 +1313,42 @@ func _cmd_dig(args: Array) -> Dictionary:
 
 
 func _cmd_exit(args: Array) -> Dictionary:
-	"""@EXIT command - Create an exit between rooms (builder command).
+	"""@EXIT command - Create a connection between rooms (builder command).
 
-	Creates an exit from the current location to a target room. The connection
-	automatically works bidirectionally - if room A has an exit to room B, then
-	room B will automatically show an exit back to room A (named after room A).
+	Creates an automatic bidirectional connection between the current location
+	and a target room. Exit names are automatically generated from room names.
+	No manual alias management needed - prevents redundancy and oubliettes.
 
 	The destination can be specified by name or #ID.
 
 	Args:
-		args: Array containing: <exit_name> to <destination>
-			  Example: ["north", "to", "Garden"] or ["south", "to", "#3"]
+		args: Array containing: to <destination>
+			  Example: ["to", "OOBII Bridge"] or ["to", "#2001"]
 
 	Returns:
 		Dictionary with:
-		- success (bool): True if exit was created
-		- message (String): Confirmation with exit and destination details
+		- success (bool): True if connection was created
+		- message (String): Confirmation with connection details and auto-generated exit names
 
 	Notes:
-		This is a builder/admin command. Exits automatically work bidirectionally.
-		Only need to create exits once - the reverse connection is automatic.
+		This is a builder/admin command. Connections automatically work bidirectionally.
+		Only need to create connections once - the reverse connection is automatic.
+		Exit names are derived from room names (e.g., "oobii bridge" for "OOBII Bridge").
 	"""
-	if args.size() < 3:
-		return {"success": false, "message": "Usage: @exit <exit name> to <destination room name or #ID>"}
+	if args.size() < 2:
+		return {"success": false, "message": "Usage: @exit to <destination room name or #ID>"}
 
-	# Find "to" keyword in arguments
-	var to_index: int = -1
-	for i in range(args.size()):
-		if args[i].to_lower() == "to":
-			to_index = i
-			break
+	# Check for "to" keyword (optional for convenience, but expected)
+	var dest_start_idx := 0
+	if args[0].to_lower() == "to":
+		dest_start_idx = 1
 
-	if to_index == -1:
-		return {"success": false, "message": "Usage: @exit <exit name> to <destination>"}
+	if args.size() <= dest_start_idx:
+		return {"success": false, "message": "Usage: @exit to <destination room name or #ID>"}
 
-	# Extract exit name from arguments before "to" (support multi-word like "The Lobby")
-	var exit_parts: Array[String] = []
-	for i in range(to_index):
-		exit_parts.append(args[i])
-	var exit_name: String = " ".join(exit_parts)
-
-	# Extract destination name from arguments after "to"
+	# Extract destination name from arguments
 	var dest_parts: Array[String] = []
-	for i in range(to_index + 1, args.size()):
+	for i in range(dest_start_idx, args.size()):
 		dest_parts.append(args[i])
 	var dest_name: String = " ".join(dest_parts)
 
@@ -1377,29 +1372,41 @@ func _cmd_exit(args: Array) -> Dictionary:
 	if not destination.has_component("location"):
 		return {"success": false, "message": "%s is not a room." % destination.name}
 
-	# Verify current location can have exits
+	# Verify current location can have connections
 	if current_location == null:
 		return {"success": false, "message": "You are nowhere."}
 
-	var loc_comp = current_location.get_component("location")
+	var loc_comp: LocationComponent = current_location.get_component("location") as LocationComponent
 	if loc_comp == null:
-		return {"success": false, "message": "This location cannot have exits."}
+		return {"success": false, "message": "This location cannot have connections."}
 
-	# Create the exit
-	loc_comp.add_exit(exit_name, destination)
+	# Create the connection
+	loc_comp.add_connection(destination)
 
-	# Broadcast exit creation event to current location
+	# Generate exit names for display
+	var exit_to_dest := loc_comp._get_canonical_exit_name(destination)
+	var exit_to_here := loc_comp._get_canonical_exit_name(current_location)
+
+	# Broadcast connection creation event to current location
 	EventWeaver.broadcast_to_location(current_location, {
 		"type": "building",
 		"actor": owner,
-		"action": "creates an exit",
+		"action": "creates a connection",
 		"target": destination,
-		"message": "%s creates an exit '%s' leading to %s." % [owner.name, exit_name, destination.name]
+		"message": "%s creates a connection leading to %s." % [owner.name, destination.name]
 	})
 
 	return {
 		"success": true,
-		"message": "Created exit: %s → %s [%s]\nReverse exit automatically created: %s can now be reached from %s." % [exit_name, destination.name, destination.id, current_location.name, destination.name]
+		"message": "Created connection: %s ↔ %s [%s]\nAuto-generated exits:\n  • From here: '%s' → %s\n  • From there: '%s' → %s" % [
+			current_location.name,
+			destination.name,
+			destination.id,
+			exit_to_dest,
+			destination.name,
+			exit_to_here,
+			current_location.name
+		]
 	}
 
 
@@ -2231,6 +2238,93 @@ func _cmd_migrate_agents(_args: Array) -> Dictionary:
 
 	message += "\nNOTE: Old files remain in vault/world/objects/characters/\n"
 	message += "You can safely delete them after verifying the migration.\n"
+
+	return {"success": errors.is_empty(), "message": message}
+
+
+func _cmd_migrate_connections(_args: Array) -> Dictionary:
+	"""@MIGRATE-CONNECTIONS command - Migrate room exits to new automatic connection format.
+
+	Converts all rooms from old `## Exits` format with aliases to new `## Connections` format.
+	Removes redundancy by storing each connection only once and deriving exit names from room names.
+
+	Syntax: @migrate-connections
+
+	Returns:
+		Dictionary with success status and migration report
+
+	Notes:
+		- Automatically deduplicates connections (multiple aliases to same room → single connection)
+		- Preserves all connectivity (no rooms become unreachable)
+		- Saves rooms immediately to vault in new format
+		- Old format files are overwritten (backup recommended)
+		- Migration is idempotent (safe to run multiple times)
+	"""
+	var all_rooms: Array[WorldObject] = WorldKeeper.get_all_rooms()
+
+	if all_rooms.is_empty():
+		return {"success": true, "message": "No rooms found to migrate."}
+
+	var migrated: int = 0
+	var already_migrated: int = 0
+	var errors: Array[String] = []
+
+	for room in all_rooms:
+		var loc_comp: LocationComponent = room.get_component("location") as LocationComponent
+		if not loc_comp:
+			continue
+
+		# Check if already using new format (has connections, empty old exits)
+		if loc_comp.connections.size() > 0:
+			already_migrated += 1
+			continue
+
+		# Check if has old format exits to migrate
+		if loc_comp.exits.is_empty():
+			already_migrated += 1
+			continue
+
+		# Migrate: convert exits dictionary to connections array (deduplicate by destination)
+		var unique_destinations: Dictionary = {}  # destination → true
+		for exit_name in loc_comp.exits.keys():
+			var destination: WorldObject = loc_comp.exits[exit_name]
+			if destination != null and destination != room:
+				unique_destinations[destination] = true
+
+		# Clear old format and populate new format
+		loc_comp.exits.clear()
+		loc_comp.connections.clear()
+		for destination in unique_destinations.keys():
+			loc_comp.connections.append(destination)
+
+		# Save room to vault in new format
+		var filename: String = MarkdownVault.sanitize_filename(room.name) + ".md"
+		var path: String = MarkdownVault.LOCATIONS_PATH + "/" + filename
+		var markdown: String = room.to_markdown()
+
+		if MarkdownVault.write_file(path, markdown):
+			migrated += 1
+		else:
+			errors.append("Failed to save: " + room.name)
+
+	var message: String = "═══ Connection Migration Complete ═══\n\n"
+	message += "Migrated: %d rooms\n" % migrated
+	message += "Already migrated: %d rooms\n" % already_migrated
+	message += "Total rooms: %d\n\n" % all_rooms.size()
+
+	if errors.size() > 0:
+		message += "Errors (%d):\n" % errors.size()
+		for error in errors:
+			message += "  - %s\n" % error
+		message += "\n"
+
+	message += "Benefits:\n"
+	message += "  ✓ No redundant aliases - each connection stored once\n"
+	message += "  ✓ No oubliettes - all connections bidirectional\n"
+	message += "  ✓ Simpler world building - exit names auto-generated\n\n"
+
+	message += "Room files updated in: user://vault/world/locations/\n"
+	message += "Reload the world (@reload-world or restart) to see changes.\n"
 
 	return {"success": errors.is_empty(), "message": message}
 
