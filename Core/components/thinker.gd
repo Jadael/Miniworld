@@ -412,9 +412,11 @@ func _construct_prompt(context: Dictionary) -> String:
 	if context.recent_memories.size() > 0:
 		prompt += "WHAT JUST HAPPENED (most recent first):\n"
 		# Show last 3-5 memories for immediate context
+		# Memories are in chronological order, so we take from the END for most recent
 		var immediate_count: int = min(5, context.recent_memories.size())
-		for i in range(immediate_count):
-			var memory: Dictionary = context.recent_memories[i]
+		var start_idx: int = context.recent_memories.size() - immediate_count
+		for i in range(start_idx, context.recent_memories.size()):
+			var memory: Dictionary = context.recent_memories[context.recent_memories.size() - 1 - (i - start_idx)]
 			var mem_dict: Dictionary = memory as Dictionary
 			var content: String = mem_dict.content
 			prompt += "- %s\n" % content
