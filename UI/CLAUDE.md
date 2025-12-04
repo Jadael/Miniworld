@@ -10,6 +10,10 @@ The UI directory contains all player-facing interface code for Miniworld. This i
 - **game_ui.tscn** - Scene file for the game interface layout
 - **game_controller_ui.gd** - UI-specific controller logic, handles command input and output display
 
+### Debug UI
+- **llm_debug_panel.gd** - Spectator-friendly display of active LLM prompts and responses
+- **llm_debug_panel.tscn** - Scene file for the LLM debug panel layout
+
 ### Configuration UI
 - **shoggoth_settings.gd** - Configuration panel for Ollama/LLM connection settings
 
@@ -81,6 +85,30 @@ Uses BBCode for rich text:
 output_text.append_text("[b]You say:[/b] Hello!\n")
 output_text.append_text("[color=gray]Moss nods thoughtfully.[/color]\n")
 ```
+
+### LLM Debug Panel
+Real-time visibility into AI agent thinking and actions:
+- **Current Prompt**: Shows the full prompt being sent to the LLM (top panel)
+- **Agent Actions Log**: Scrolling feed of all agent commands (bottom panel)
+  - Format: `Name> command`
+  - Persistent log that accumulates all agent actions
+  - Auto-scrolls to show latest actions
+- **Task Status Header**: Shows which agent is currently processing
+- **Color-coded**: Prompt in light blue, agent names in light green
+- **Agent Name Extraction**: Automatically extracts agent name from prompt using regex
+- **Text Wrapping**: Autowrap mode prevents overflow, no fit_content for cleaner display
+
+**Pattern**:
+- Connects to Shoggoth.task_started and Shoggoth.task_response signals
+- Extracts agent name from prompt: `"You are <name> in <location>"`
+- Strips thinking content and reasoning, shows only the command
+
+**Layout**: Left side panel (300px width) with two vertically stacked sections
+
+**Use Case**:
+- Spectator mode: Watch all agents' decisions in real-time
+- Debugging: See what prompts agents receive and what commands they generate
+- Understanding: Track agent behavior patterns over time
 
 ### Settings Panel
 Shoggoth settings allow runtime configuration:

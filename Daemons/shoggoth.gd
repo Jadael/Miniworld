@@ -54,6 +54,16 @@ signal llm_connection_failed(error_type: String, error_message: String, suggeste
 ## status_message: Human-readable status update (e.g., "Testing connection to Ollama...")
 signal initialization_status(status_message: String)
 
+## Emitted when a task starts processing (for spectator visibility)
+## task_id: Unique identifier for the task
+## prompt: The full prompt being sent to the LLM
+signal task_started(task_id: String, prompt: String)
+
+## Emitted when a task completes (for spectator visibility)
+## task_id: Unique identifier for the task
+## response: The final response from the LLM
+signal task_response(task_id: String, response: String)
+
 ## Path to the configuration file storing Ollama settings
 const CONFIG_FILE = "user://shoggoth_config.cfg"
 
@@ -596,6 +606,7 @@ func _execute_current_task(options: Dictionary) -> void:
 		return
 
 	var mode = current_task.get("mode", "generate")
+	var task_id = current_task.get("id", "unknown")
 
 	if mode == "generate_async":
 		# Just-in-time prompt generation for async tasks
@@ -617,10 +628,16 @@ func _execute_current_task(options: Dictionary) -> void:
 
 		var system_prompt: String = current_task.get("system_prompt", "")
 
-		# Use separate system field for /api/generate (cleaner, potentially faster)
-		# Ollama's /api/generate supports a "system" field for system prompts
+		# Build full prompt for spectator display
+		var full_prompt: String = ""
 		if system_prompt != "":
+			full_prompt = system_prompt + "\n\n" + prompt_text
 			options["system"] = system_prompt
+		else:
+			full_prompt = prompt_text
+
+		# Emit task started for spectator visibility
+		task_started.emit(task_id, full_prompt)
 
 		ollama_client.generate(prompt_text, options)
 
@@ -629,18 +646,31 @@ func _execute_current_task(options: Dictionary) -> void:
 			_handle_task_error("Chat task missing 'messages' key")
 			return
 		var messages = current_task["messages"] as Array
+
+		# Build full prompt from messages for spectator display
+		var full_prompt: String = ""
+		for msg in messages:
+			var role: String = msg.get("role", "unknown")
+			var content: String = msg.get("content", "")
+			full_prompt += "[%s]\n%s\n\n" % [role.to_upper(), content]
+
+		task_started.emit(task_id, full_prompt.strip_edges())
 		ollama_client.chat(messages, options)
+
 	elif mode == "embed":
 		if not current_task.has("texts"):
 			_handle_task_error("Embed task missing 'texts' key")
 			return
 		var texts = current_task["texts"]
+		# Don't emit task_started for embeddings (not interesting for spectators)
 		ollama_client.embed(texts)
+
 	else:
 		if not current_task.has("prompt"):
 			_handle_task_error("Generate task missing 'prompt' key")
 			return
 		var prompt = current_task["prompt"] as String
+		task_started.emit(task_id, prompt)
 		ollama_client.generate(prompt, options)
 
 func _handle_task_error(error_message: String) -> void:
@@ -802,6 +832,12 @@ func _emit_task_completion(result: String, thinking: String = "") -> void:
 		the chain-of-thought reasoning to their memory.
 	"""
 	var task_id = current_task.get("id", "unknown")
+
+	# Emit task_response for spectator visibility (show the final response)
+	var display_response: String = result
+	if thinking != "":
+		display_response = "[Thinking]\n%s\n\n[Response]\n%s" % [thinking, result]
+	task_response.emit(task_id, display_response)
 
 	# Invoke callback if one is registered
 	if pending_callbacks.has(task_id):

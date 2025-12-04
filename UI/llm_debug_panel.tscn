@@ -1,0 +1,66 @@
+[gd_scene load_steps=2 format=3 uid="uid://b3vl8yhqx0ck5"]
+
+[ext_resource type="Script" path="res://UI/llm_debug_panel.gd" id="1_llm_debug"]
+
+[node name="LLMDebugPanel" type="VBoxContainer"]
+layout_mode = 2
+script = ExtResource("1_llm_debug")
+
+[node name="HeaderLabel" type="Label" parent="."]
+layout_mode = 2
+text = "LLM IDLE"
+horizontal_alignment = 1
+
+[node name="Spacer1" type="Control" parent="."]
+custom_minimum_size = Vector2(0, 5)
+layout_mode = 2
+
+[node name="PromptContainer" type="VBoxContainer" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="PromptHeader" type="Label" parent="PromptContainer"]
+layout_mode = 2
+text = "PROMPT"
+horizontal_alignment = 1
+
+[node name="PromptPanel" type="PanelContainer" parent="PromptContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="PromptScroll" type="RichTextLabel" parent="PromptContainer/PromptPanel"]
+layout_mode = 2
+focus_mode = 0
+bbcode_enabled = true
+scroll_following = false
+fit_content = false
+autowrap_mode = 3
+selection_enabled = true
+context_menu_enabled = true
+
+[node name="Spacer2" type="Control" parent="."]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+
+[node name="ResponseContainer" type="VBoxContainer" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ResponseHeader" type="Label" parent="ResponseContainer"]
+layout_mode = 2
+text = "AGENT ACTIONS"
+horizontal_alignment = 1
+
+[node name="ResponsePanel" type="PanelContainer" parent="ResponseContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ResponseScroll" type="RichTextLabel" parent="ResponseContainer/ResponsePanel"]
+layout_mode = 2
+focus_mode = 0
+bbcode_enabled = true
+scroll_following = true
+fit_content = false
+autowrap_mode = 3
+selection_enabled = true
+context_menu_enabled = true

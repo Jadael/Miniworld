@@ -256,7 +256,8 @@ func _think() -> void:
 			return prompt
 
 		# Generate task and capture task_id for training data collection
-		var task_id: String = Shoggoth.generate_async(prompt_generator, get_profile(), Callable(self, "_on_thought_complete"))
+		# Note: We don't pass profile as system_prompt because it's already in the prompt itself
+		var task_id: String = Shoggoth.generate_async(prompt_generator, "", Callable(self, "_on_thought_complete"))
 
 		# Store task_id for training data collection
 		_pending_training_task_id = task_id
@@ -360,26 +361,32 @@ func _build_context() -> Dictionary:
 	return context
 
 func _construct_prompt(context: Dictionary) -> String:
-	"""Construct LLM prompt from context.
+	"""Construct LLM prompt from context using attention-optimized structure.
 
-	Builds a structured prompt optimized for both base models and instruct models:
+	Leverages LLM attention patterns (strong at beginning/end, weak in middle):
 
-	1. Identity & Profile (system context)
-	2. Command List & Format Instructions
-	3. Relevant Notes (from personal wiki)
-	4. Multi-Scale Memory Context:
-	   - Long-term summary (oldest compressed memories)
-	   - Recent summary (memories outside immediate window)
-	   - Recent transcript (immediate memories in full detail)
-	5. Current Situation (minimal summary)
-	6. Command Prompt ("> " - triggers command generation)
+	HIGH ATTENTION ZONE (Beginning):
+	1. Identity & Profile (who am I?)
+	2. What Just Happened (last 5 memories - immediate context)
+	3. Command List & Format Instructions (what can I do?)
 
-	The transcript placement is KEY for base models: by putting it immediately
-	before the command prompt, recent events show the model what happens and the
-	outcomes of actions. Successful commands show only narrative results (not echoed
-	commands) to prevent pattern replication. Failed commands show full context
-	(what was attempted, why it failed, suggestions). Summaries provide historical
-	context without overwhelming the attention budget.
+	LOW ATTENTION ZONE (Middle):
+	4. Relevant Notes (from personal wiki)
+	5. Related Past Experiences (RAG summaries)
+	6. Long-term Memory Summary (compressed history)
+	7. Mid-term Memory Summary (recent but not immediate)
+
+	HIGH ATTENTION ZONE (End):
+	8. Complete Recent Memory (full chronological transcript)
+	9. Prior Reasoning (thought process from previous turns)
+	10. Current Situation (where am I, who's here, what exits)
+	11. Prior Command (avoid repetition)
+	12. Next Command Prompt ("> " - triggers generation)
+
+	The dual memory placement (recent at top, full at end) ensures immediate
+	context appears in both high-attention zones while historical context
+	stays in the middle. This maximizes decision quality while maintaining
+	full context availability.
 
 	Args:
 		context: Dictionary from _build_context() with situation info and memory summaries
@@ -390,19 +397,34 @@ func _construct_prompt(context: Dictionary) -> String:
 	Notes:
 		Expects LLM to respond with MOO-style: "command args | reason"
 		Uses cascading temporal summaries (Anthropic context engineering pattern)
-		The transcript-before-prompt structure is optimized for base models
-		while remaining effective for instruct/chat models.
+		Attention-based structure optimized for both base and instruct models
 	"""
 	var prompt: String = ""
 
+	# ===== HIGH ATTENTION ZONE (Beginning) =====
 	# Agent identity and personality (character context)
-	prompt += "CURRENT SITUATION:\n"
-	prompt += "You are %s in %s. " % [context.name, context.location_name]
-	prompt += "%s\n" % context.profile
-	if context.occupants.size() > 0:
-		prompt += " Also here: %s\n" % ", ".join(context.occupants)
-	else:
-		prompt += "You are alone here.\n"
+	prompt += "IDENTITY:\n"
+	prompt += "%s\n\n" % context.profile
+
+	# Show most recent memories at the top for immediate context
+	# Track content for deduplication when we show full memory list later
+	var notes_shown_in_memories: Array[String] = []
+	if context.recent_memories.size() > 0:
+		prompt += "WHAT JUST HAPPENED (most recent first):\n"
+		# Show last 3-5 memories for immediate context
+		var immediate_count: int = min(5, context.recent_memories.size())
+		for i in range(immediate_count):
+			var memory: Dictionary = context.recent_memories[i]
+			var mem_dict: Dictionary = memory as Dictionary
+			var content: String = mem_dict.content
+			prompt += "- %s\n" % content
+
+			# Track note titles to avoid duplication
+			if content.contains("You saved a note titled"):
+				var parts: PackedStringArray = content.split("\"")
+				if parts.size() >= 2:
+					notes_shown_in_memories.append(parts[1])
+		prompt += "\n"
 
 	# Available command reference early for context
 	prompt += "BASIC COMMANDS:\n"
@@ -429,16 +451,12 @@ func _construct_prompt(context: Dictionary) -> String:
 
 	# Response format instructions
 	prompt += "EXAMPLE:\n"
-	#prompt += "go garden | Want to explore somewhere new.\n"
 	prompt += "say Hello! How are you today? | Greeting them before I wait for a resposne.\n"
-	#prompt += "emote waves enthusiastically | They look friendly, making a connection.\n"
-	#prompt += "think I should wait for a bit and see what they say.\n"
 	prompt += "note Goal -> I want to...\n"
 	prompt += "help\n\n"
-	#prompt += "(Everything after the | is private and visible only to you.)\n\n"
 
-	# Contextually relevant notes from personal wiki (before transcript for context)
-	var notes_shown_in_memories: Array[String] = []  # Track notes already shown
+	# ===== LOW ATTENTION ZONE (Middle) =====
+	# Contextually relevant notes from personal wiki
 	if context.has("relevant_notes") and context.relevant_notes.size() > 0:
 		prompt += "POTENTIALLY RELATED PRIVATE NOTES:\n\n"
 		for note_data in context.relevant_notes:
@@ -470,12 +488,13 @@ func _construct_prompt(context: Dictionary) -> String:
 		prompt += "MID TERM MEMORY SUMMARY:\n\n"
 		prompt += "%s\n\n" % context.recent_summary
 
+	# ===== HIGH ATTENTION ZONE (End) =====
 	# Recent observations from memory - Shows narrative results only, not command echoes
-	# This goes LAST, so that base models continue it naturally
+	# Moved to end for maximum attention, right before current situation
 	# Separating commands from narrative results helps smaller models avoid echo/pattern reinforcement
 	# Memory deduplication: Collapse consecutive identical memories to prevent pattern reinforcement
 	if context.recent_memories.size() > 0:
-		prompt += "RECENT MEMORIES:\n\n"
+		prompt += "COMPLETE RECENT MEMORY (chronological):\n\n"
 
 		var last_content: String = ""
 		var repeat_count: int = 0
@@ -540,6 +559,7 @@ func _construct_prompt(context: Dictionary) -> String:
 			for reasoning in reasonings_to_show:
 				prompt += "- %s\n" % reasoning
 			prompt += "\n"
+
 	prompt += "-------------\n"
 	prompt += "CURRENT SITUATION:\n"
 	# FINAL: Current situation summary (minimal, right before command prompt)

@@ -1,21 +1,33 @@
 ## GameUI: Main player interface for Miniworld
 ##
-## Classic MUD/MOO-style text-based interface providing:
-## - Main event scroll displaying command results and events (center panel)
-## - Location panel showing current room and exits (top right)
-## - Occupants panel listing other actors present (bottom right)
-## - Command input with history navigation (bottom)
+## Three-column MUD/MOO-style text-based interface providing:
+## - Left panel: LLM debug display showing active prompts and responses
+## - Center panel: Main event scroll displaying command results and events
+## - Right panel: Location and occupants information
+## - Bottom: Command input with history navigation
+##
+## Layout:
+## - Left side: 300px - LLM prompt and response panels (spectator mode)
+## - Center: Flexible - Main event scroll with command output
+## - Right side: 300px - Location (top) and occupants (bottom) panels
+## - Bottom: 60px - Command input bar
 ##
 ## The UI supports BBCode formatting for colors and styling, and includes
 ## keyboard shortcuts for navigation commands and command history (UP/DOWN arrows).
 ##
+## Text Overflow Prevention:
+## - All RichTextLabel nodes use autowrap_mode = 3 (word wrapping)
+## - fit_content disabled to prevent panel expansion
+## - scroll_following disabled for static content panels
+##
 ## Dependencies:
 ## - GameControllerUI: Processes commands and provides game state updates
+## - Shoggoth: Provides LLM debug signals (task_started, task_response)
 ##
 ## Notes:
 ## - Command history is navigated with UP/DOWN arrow keys
 ## - Displays a welcome screen with command reference on startup
-## - UP/DOWN keys navigate command history while input is focused
+## - LLM debug panel updates in real-time as agents think
 
 extends Control
 
@@ -24,19 +36,19 @@ extends Control
 @onready var event_scroll: RichTextLabel = $MainPanel/EventScroll
 
 ## Container for the location panel
-@onready var location_panel: PanelContainer = $SidePanel/LocationContainer/LocationPanel
+@onready var location_panel: PanelContainer = $RightSidePanel/SidePanel/LocationContainer/LocationPanel
 
 ## RichTextLabel showing location name and description
-@onready var location_label: RichTextLabel = $SidePanel/LocationContainer/LocationPanel/VBox/LocationLabel
+@onready var location_label: RichTextLabel = $RightSidePanel/SidePanel/LocationContainer/LocationPanel/VBox/LocationLabel
 
 ## Label showing available exits from current location
-@onready var exits_label: Label = $SidePanel/LocationContainer/LocationPanel/VBox/ExitsLabel
+@onready var exits_label: Label = $RightSidePanel/SidePanel/LocationContainer/LocationPanel/VBox/ExitsLabel
 
 ## Container for the occupants panel
-@onready var occupants_panel: PanelContainer = $SidePanel/OccupantsContainer/OccupantsPanel
+@onready var occupants_panel: PanelContainer = $RightSidePanel/SidePanel/OccupantsContainer/OccupantsPanel
 
 ## RichTextLabel listing other actors in the location
-@onready var occupants_list: RichTextLabel = $SidePanel/OccupantsContainer/OccupantsPanel/OccupantsList
+@onready var occupants_list: RichTextLabel = $RightSidePanel/SidePanel/OccupantsContainer/OccupantsPanel/OccupantsList
 
 ## LineEdit for player command input
 @onready var command_input: LineEdit = $BottomPanel/CommandInput
