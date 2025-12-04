@@ -387,6 +387,8 @@ func execute_command(command: String, args: Array = [], reason: String = "", tas
 					# Add note about auto-correction to message (only for player feedback)
 					if result.has("message") and owner.has_flag("is_player"):
 						result.message = "[Auto-corrected '%s' → '%s']\n%s" % [command, suggestion, result.message]
+					# Return early - the recursive call already emitted the signal
+					return result
 				else:
 					result = {"success": false, "message": "Unknown command: %s\nTry 'help' for available commands." % command}
 			else:
